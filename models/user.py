@@ -1,4 +1,6 @@
 from sqlalchemy import Column, Integer, String, Enum
+from sqlalchemy.orm import Relationship
+
 from  database.db import  Base
 import enum
 
@@ -23,3 +25,4 @@ class User(Base):
     accountStatus = Column(Enum(AccountStatus), default=AccountStatus.ACTIVE)
     role = Column(Enum(Role), default=Role.CLIENT)
     CIN = Column(String(50), nullable=False)
+    reservations=Relationship("Reservation",back_populates="user")

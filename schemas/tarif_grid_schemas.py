@@ -9,3 +9,6 @@ class TarifGridItem(BaseModel):
 class TarifGridResponse(BaseModel):
     name: str
     grid: list[TarifGridItem]
+
+    class Config:
+        orm_mode = True
