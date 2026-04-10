@@ -1,13 +1,13 @@
 from sqlalchemy.orm import Session
 
-from models import Models
+from models.user import User
 
 
 def get_user(db: Session, user_id: int):
-    return db.query(Models.User).filter(Models.User.id == user_id).first()
+    return db.query(User).filter(User.id == user_id).first()
 
 def get_users(db: Session):
-    return db.query(Models.User).all()
+    return db.query(User).all()
 
 
 

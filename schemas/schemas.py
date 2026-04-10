@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from models.Models import Role, AccountStatus
+from models.user import Role, AccountStatus
 
 
 class UserResponse(BaseModel):
