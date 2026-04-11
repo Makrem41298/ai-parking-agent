@@ -1,6 +1,8 @@
 from enum import Enum
 from pydantic import BaseModel, ConfigDict
 
+from schemas.user_schemas import UserResponse
+
 
 class ReclamationStatus(str, Enum):
     IN_PROGRESS = "IN_PROGRESS"
@@ -11,7 +13,9 @@ class ReclamationStatus(str, Enum):
 class ReclamationResponse(BaseModel):
     id: int
     clientId: int
+    client:UserResponse
     adminId: int | None = None
+    admin:UserResponse | None = None
     subject: str | None = None
     content: str
     solution: str | None = None
