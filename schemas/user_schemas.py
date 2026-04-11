@@ -1,6 +1,16 @@
-from pydantic import BaseModel, EmailStr
-from models.user import Role, AccountStatus
+import enum
 
+from pydantic import BaseModel, EmailStr
+
+class AccountStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE",
+    BLOCKED = "BLOCKED",
+    PENDING = "PENDING",
+
+class Role(str, enum.Enum):
+    CLIENT = "CLIENT",
+    ADMIN = "ADMIN",
+    SUPER_ADMIN = "SUPER_ADMIN",
 
 class UserResponse(BaseModel):
     id: int

@@ -1,18 +1,11 @@
 from sqlalchemy import Column, Integer, String, Enum
-from sqlalchemy.orm import Relationship
+from sqlalchemy.orm import  relationship
 
 from  database.db import  Base
 import enum
 
-class AccountStatus(str, enum.Enum):
-    ACTIVE = "ACTIVE",
-    BLOCKED = "BLOCKED",
-    PENDING = "PENDING",
+from schemas.user_schemas import AccountStatus, Role
 
-class Role(str, enum.Enum):
-    CLIENT = "CLIENT",
-    ADMIN = "ADMIN",
-    SUPER_ADMIN = "SUPER_ADMIN",
 
 class User(Base):
     __tablename__ = "users"
@@ -25,4 +18,17 @@ class User(Base):
     accountStatus = Column(Enum(AccountStatus), default=AccountStatus.ACTIVE)
     role = Column(Enum(Role), default=Role.CLIENT)
     CIN = Column(String(50), nullable=False)
-    reservations=Relationship("Reservation",back_populates="user")
+    reservations=relationship("Reservation",back_populates="user")
+    subscriptions = relationship("Subscription", back_populates="user", cascade="all, delete-orphan")
+    client_reclamations = relationship(
+        "Reclamation",
+        foreign_keys="Reclamation.clientId",
+        back_populates="client",
+        cascade="all, delete-orphan"
+    )
+
+    admin_reclamations = relationship(
+        "Reclamation",
+        foreign_keys="Reclamation.adminId",
+        back_populates="admin"
+    )

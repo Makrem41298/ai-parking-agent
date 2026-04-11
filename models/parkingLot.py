@@ -36,3 +36,4 @@ class ParkingLot(Base):
     # Relationship
     tarif_grid = relationship("TarifGrid", back_populates="parking_lots")
     reservations=relationship("Reservation",back_populates="parking_lot")
+    plan_parking_lots = relationship("PlanParkingLot", back_populates="parking_lot", cascade="all, delete-orphan")

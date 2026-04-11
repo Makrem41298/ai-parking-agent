@@ -4,12 +4,22 @@ from starlette import status
 
 from database.db import get_db
 from schemas import user_schemas, tarif_grid_schemas, parking_lot_schema
+from schemas.plan_parking_lot_schema import PlanParkingLotResponse
+from schemas.plan_schema import PlanResponse
+from schemas.reclamation_schema import ReclamationResponse
 from schemas.reservation_schema import ReservationResponse
+from schemas.subscription_schema import SubscriptionResponse
+from schemas.user_schemas import UserResponse
 from services import user_service, tarif_grid_service, parking_lot_service
 from typing import List
+
+from services.plan_parking_lot_service import get_all_plan_parking_lots, get_plan_parking_lot
+from services.plan_service import get_all_plans, get_plan
+from services.reclamation_service import get_all_reclamations, get_reclamation
 from services.reservation_service import get_reservation as get_reservation_service
 
 from services.reservation_service import get_all_reservation, get_reservation
+from services.subscription_service import get_all_subscriptions, get_subscription
 
 api_router = APIRouter()
 
@@ -24,12 +34,12 @@ def read_users(db: Session = Depends(get_db)):
     return user_service.get_users(db)
 
 
-@api_router.get("/users/{user_id}", response_model=user_schemas.UserResponse)
+@api_router.get("/users/{user_id}", response_model=UserResponse)
 def read_user(user_id: int, db: Session = Depends(get_db)):
     userdb = user_service.get_user(db, user_id)
     if not userdb:
         raise HTTPException(status_code=404, detail="User not found")
-    return user_service
+    return userdb
 @api_router.get(  "/tarif-grid",response_model=List[tarif_grid_schemas.TarifGridResponse],  summary="Get all tariff grids")
 def get_all_tariff_grids(db: Session = Depends(get_db)):
     grids = tarif_grid_service.get_tarif_grids(db)
@@ -88,3 +98,60 @@ def read_reservation(reservation_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Reservation not found")
 
     return  reservation
+
+
+
+
+
+@api_router.get("/plans", response_model=list[PlanResponse])
+def read_all_plans(db: Session = Depends(get_db)):
+    return get_all_plans(db)
+
+
+@api_router.get("/plans/{plan_id}", response_model=PlanResponse)
+def read_plan(plan_id: int, db: Session = Depends(get_db)):
+    plan = get_plan(plan_id, db)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return plan
+@api_router.get("/plan-parking-lot", response_model=list[PlanParkingLotResponse])
+def read_all_plan_parking_lots(db: Session = Depends(get_db)):
+    return get_all_plan_parking_lots(db)
+
+
+@api_router.get("/plan-parking-lot/{plan_parking_lot_id}", response_model=PlanParkingLotResponse)
+def read_plan_parking_lot(plan_parking_lot_id: int, db: Session = Depends(get_db)):
+    item = get_plan_parking_lot(plan_parking_lot_id, db)
+    if not item:
+        raise HTTPException(status_code=404, detail="PlanParkingLot not found")
+    return item
+
+
+
+@api_router.get("/subscriptions", response_model=list[SubscriptionResponse])
+def read_all_subscriptions(db: Session = Depends(get_db)):
+    return get_all_subscriptions(db)
+
+
+@api_router.get("/subscriptions/{subscription_id}", response_model=SubscriptionResponse)
+def read_subscription(subscription_id: int, db: Session = Depends(get_db)):
+    subscription = get_subscription(subscription_id, db)
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    return subscription
+
+
+
+
+
+@api_router.get("/reclamations", response_model=list[ReclamationResponse])
+def read_all_reclamations(db: Session = Depends(get_db)):
+    return get_all_reclamations(db)
+
+
+@api_router.get("/reclamation/{reclamation_id}", response_model=ReclamationResponse)
+def read_reclamation(reclamation_id: int, db: Session = Depends(get_db)):
+    reclamation = get_reclamation(reclamation_id, db)
+    if not reclamation:
+        raise HTTPException(status_code=404, detail="Reclamation not found")
+    return reclamation
