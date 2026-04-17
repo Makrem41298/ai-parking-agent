@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, ForeignKey, DateTime, Enum
 from sqlalchemy.orm import relationship
 
-from database.db import Base
+from database.__init__ import Base
+from models.user import User
 from schemas.subscription_schema import SubscriptionStatus
 
 

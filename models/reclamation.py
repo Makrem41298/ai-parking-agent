@@ -1,8 +1,18 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 
-from database.db import Base
+from database.__init__ import Base
+from models.user import User
 from schemas.reclamation_schema import ReclamationStatus
+
+from sqlalchemy import Column, Integer, String, Enum
+from sqlalchemy.orm import  relationship
+
+from  database.__init__ import  Base
+import enum
+
+from schemas.user_schemas import AccountStatus, Role
+
 
 
 class Reclamation(Base):
@@ -15,6 +25,7 @@ class Reclamation(Base):
     content = Column(String, nullable=False)
     solution = Column(String, nullable=True)
     status = Column(Enum(ReclamationStatus), nullable=False, default=ReclamationStatus.IN_PROGRESS)
-
     client = relationship("User", foreign_keys=[clientId], back_populates="client_reclamations")
     admin = relationship("User", foreign_keys=[adminId], back_populates="admin_reclamations")
+
+

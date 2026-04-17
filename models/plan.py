@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, JSON
 from sqlalchemy.orm import relationship
 
-from database.db import Base
+from database.__init__ import Base
+from models.plan_parking_lot import PlanParkingLot
 
 
 class Plan(Base):
@@ -13,4 +14,4 @@ class Plan(Base):
     startDate = Column(DateTime, nullable=False)
     endDate = Column(DateTime, nullable=False)
     NumberOfBenefitDays = Column(Integer, nullable=False)
-    plan_parking_lots = relationship("PlanParkingLot", back_populates="plan", cascade="all, delete-orphan")
+    plan_parking_lots = relationship("PlanParkingLot", back_populates="plan")

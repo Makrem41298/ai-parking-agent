@@ -1,7 +1,9 @@
 from sqlalchemy import Column, Integer, String, JSON
 from sqlalchemy.orm import relationship
 
-from database.db import Base
+from database.__init__ import Base
+from models.parkingLot import ParkingLot
+
 
 class TarifGrid (Base):
     __tablename__="tariff_grids"

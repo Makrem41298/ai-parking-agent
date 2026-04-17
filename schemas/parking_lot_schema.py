@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from enum import Enum
 
 from schemas.tarif_grid_schemas import TarifGridResponse
@@ -24,7 +24,4 @@ class ParkingLotResponse(BaseModel):
     subscriptionAvailability: bool = True
     tarifGridId: int | None = None
     numberOfPlaceAvailable: int
-    tarif_grid: TarifGridResponse | None
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

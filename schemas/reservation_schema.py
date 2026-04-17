@@ -22,7 +22,7 @@ class ReservationResponse(BaseModel):
     parkingLotId: int
     parking_lot:ParkingLotResponse
     userId: int
-    user:UserResponse
+    client:UserResponse
     startTimeDate: datetime
     endTimeDate: datetime
     totalPrice: Decimal

@@ -1,9 +1,11 @@
 from sqlalchemy import Column, Integer, String, Enum
 from sqlalchemy.orm import  relationship
+from typing_extensions import override
 
-from  database.db import  Base
+from  database.__init__ import  Base
 import enum
 
+from schemas.reclamation_schema import ReclamationResponse
 from schemas.user_schemas import AccountStatus, Role
 
 
@@ -18,13 +20,12 @@ class User(Base):
     accountStatus = Column(Enum(AccountStatus), default=AccountStatus.ACTIVE)
     role = Column(Enum(Role), default=Role.CLIENT)
     CIN = Column(String(50), nullable=False)
-    reservations=relationship("Reservation",back_populates="user")
+    reservations=relationship("Reservation",back_populates="client")
     subscriptions = relationship("Subscription", back_populates="user", cascade="all, delete-orphan")
     client_reclamations = relationship(
         "Reclamation",
         foreign_keys="Reclamation.clientId",
-        back_populates="client",
-        cascade="all, delete-orphan"
+        back_populates="client"
     )
 
     admin_reclamations = relationship(
@@ -32,3 +33,7 @@ class User(Base):
         foreign_keys="Reclamation.adminId",
         back_populates="admin"
     )
+
+
+    
+

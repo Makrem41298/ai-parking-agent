@@ -1,7 +1,11 @@
 from sqlalchemy import Column, Integer, String, Boolean, Text, Enum, ForeignKey
-from sqlalchemy.orm import relationship
-from database.db import Base
+from sqlalchemy.orm import relationship, Session
+from database.__init__ import Base
 from schemas.parking_lot_schema import ParkingStatus
+
+
+
+
 
 class ParkingLot(Base):
     __tablename__ = "parking_lots"
@@ -36,4 +40,4 @@ class ParkingLot(Base):
     # Relationship
     tarif_grid = relationship("TarifGrid", back_populates="parking_lots")
     reservations=relationship("Reservation",back_populates="parking_lot")
-    plan_parking_lots = relationship("PlanParkingLot", back_populates="parking_lot", cascade="all, delete-orphan")
+    plan_parking_lots = relationship("PlanParkingLot", back_populates="parking_lot")

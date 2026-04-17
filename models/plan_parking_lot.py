@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, ForeignKey, Enum, DECIMAL
 from sqlalchemy.orm import relationship
 
-from database.db import Base
+from database.__init__ import Base
+from models.subscription import Subscription
 from schemas.plan_parking_lot_schema import PlanStatus
 
 
@@ -17,4 +18,4 @@ class PlanParkingLot(Base):
 
     plan = relationship("Plan", back_populates="plan_parking_lots")
     parking_lot = relationship("ParkingLot", back_populates="plan_parking_lots")
-    subscriptions = relationship("Subscription", back_populates="plan_parking_lot", cascade="all, delete-orphan")
+    subscriptions = relationship("Subscription", back_populates="plan_parking_lot")

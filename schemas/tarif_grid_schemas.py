@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class TarifGridItem(BaseModel):
@@ -10,5 +10,4 @@ class TarifGridResponse(BaseModel):
     name: str
     grid: list[TarifGridItem]
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

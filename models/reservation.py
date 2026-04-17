@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, ForeignKey, Date, DECIMAL, Enum
 from sqlalchemy.orm import relationship
 
-from database.db import Base
+from database.__init__ import Base
 from schemas.reservation_schema import ReservationStatus
 
 
@@ -19,4 +19,4 @@ class Reservation(Base):
     leaveTime = Column(Date, nullable=True)
 
     parking_lot = relationship("ParkingLot", back_populates="reservations")
-    user = relationship("User", back_populates="reservations")
+    client = relationship("User", back_populates="reservations")
