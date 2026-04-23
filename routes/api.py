@@ -17,7 +17,12 @@ async def welcome():
 @api_router.post("/agent",dependencies=[Depends(JWTBearer())])
 async def agent(data: AgentRequest):
 
-    answer = await run_in_threadpool(get_agent_response, data.question)
+
+
+    print(data)
+
+    answer = await run_in_threadpool(get_agent_response, data)
+
 
     return {"question": data.question,
             "answer": answer

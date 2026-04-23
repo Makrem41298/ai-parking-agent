@@ -72,5 +72,3 @@ def get_parking_lots(
 
     return [ParkingLotResponse.model_validate(p) for p in parking_lots]
 
-def get_parking_lot(parking_id: int, db: Session ):
-    return db.query(ParkingLot).options(joinedload(ParkingLot.tarif_grid)).filter(ParkingLot.id == parking_id).first()

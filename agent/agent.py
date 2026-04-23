@@ -1,5 +1,9 @@
 import os
 from dotenv import load_dotenv
+from langchain_core import messages
+
+from schemas.agent_schema import AgentRequest
+
 load_dotenv()
 os.environ['GROQ_API_KEY'] = os.getenv('GROQ_API_KEY')
 from langchain_groq import ChatGroq
@@ -344,8 +348,17 @@ def filter_subscriptions_tool(
         return serialize_results(results)
     finally:
         db.close()
+from langchain.agents import create_agent
+from langchain_core.tools import tool
+
+@tool
+def unsupported_request(reason: str) -> str:
+    """Use this tool when the user asks for something that is خارج available tools."""
+    return "This request is not supported by the available tools."
+
 
 tools = [
+    unsupported_request,
     filter_tarif_grids_tool,
     filter_reclamations_tool,
     filter_users_tool,
@@ -355,40 +368,201 @@ tools = [
     filter_plan_parking_lots_tool,
     filter_subscriptions_tool
 ]
-from langchain.agents import create_agent
-
-agent = create_agent(
-    model=model,
-    tools=tools,
-    system_prompt="""
-You are an AI assistant for a smart parking platform (Vivia Mobility).
-
-Your role:
-- Help users find parking, plans, subscriptions, and support issues.
-- Use tools ONLY when needed.
-- Always choose the MOST relevant tool.
-- NEVER hallucinate data.
-
-Rules:
-- If user asks for data → use tools.
-- If answer is simple → respond directly.
-- Always return clean and short answers.
-- If tool returns JSON → summarize it nicely.
-
-Examples:
-User: "show parking in Tunis"
-→ use get_parking_lots_tool(city="Tunis")
-
-User: "my subscriptions"
-→ use filter_subscriptions_tool()
-
-Be fast and accurate.
-"""
-)
 
 
-def get_agent_response(question: str) -> str:
-    return agent.invoke({"messages":
-                             [{"role": "user",
-                                       "content": question
-                                       }]})["messages"][-1].content
+
+def get_agent_response(data: AgentRequest) -> str:
+
+    print(data)
+
+
+
+    if data.generationResponse:
+        system_prompt = """
+        You are an AI assistant for Vivia Mobility, a smart parking platform.
+
+        Your role:
+        - Generate a professional and helpful response to customer reclamations.
+        - Your response will be sent directly to the client.
+
+        Core behavior:
+        - Understand the customer's request clearly.
+        - If the request requires platform data (plans, subscriptions, reservations, etc.), you MUST use the appropriate tool.
+        - Never invent or guess platform data.
+        - If no tool is needed, answer directly.
+
+        User context:
+        - You may receive userId and userName.
+        - If userName is available, always personalize the response:
+          Example: "Hello Makrem,"
+        - If the request is about personal data (reservations, subscriptions), assume it is for that specific user.
+
+        Tone:
+        - Friendly and respectful
+        - Professional and reassuring
+        - Short and clear
+
+        Structure:
+        1. Greeting (use client name if available)
+        2. Acknowledge the request
+        3. Provide the solution or information
+        4. Offer further help
+        5. Closing sentence
+
+        Strict rules:
+        - Do NOT mention tools, APIs, or internal systems
+        - Do NOT hallucinate platform data
+        - Do NOT give generic answers like "issue resolved" without explanation
+        - Always adapt to the actual request
+
+        Tool usage rules:
+        - If the client asks about:
+          - plans → use filter_plans_tool
+          - reservations → use filter_reservations_tool(userId=...)
+          - subscriptions → use filter_subscriptions_tool(userId=...)
+        - After calling a tool:
+          → summarize the result in a clean, human-friendly message
+
+        If no data found:
+        - Respond clearly:
+          - "You currently have no reservations."
+          - "No subscriptions were found for your account."
+
+        Example:
+
+        Customer message:
+        "I want to know list plans"
+
+        Response:
+        "Hello Makrem,
+
+        Thank you for reaching out.
+
+        We’d be happy to provide you with information about our available plans. We offer several subscription options depending on your needs, including flexible access and long-term parking solutions.
+
+        Please let us know your preferred location or usage, and we will guide you to the most suitable plan.
+
+        Best regards,  
+        Vivia Mobility Team"
+        """
+    else:
+        if data.generalResponse:
+            system_prompt = """
+              You are an AI assistant for Vivia Mobility, a smart parking platform.
+
+              Your job:
+              - Help admin with parking lots, plans, subscriptions, reservations, tariff grids, users, and reclamations.
+              - You must use the available tools for every supported request.
+              - You must never invent data.
+              - You must never answer from your own knowledge when the request is about platform data.
+
+              Strict rules:
+              - If the request matches one of the available tools, call the most relevant tool.
+              - If the request does not match any available tool, call unsupported_request.
+              - Do not generate Python code, SQL, examples, tutorials, or general knowledge answers unless a tool explicitly provides that information.
+              - Do not hallucinate.
+              - Keep the final answer short, clean, and helpful.
+              - If a tool returns JSON, summarize the useful result clearly.
+
+              Supported topics:
+              - parking lots
+              - plans
+              - plan parking lots
+              - subscriptions
+              - reservations
+              - tariff grids
+              - users
+              - reclamations
+
+              Unsupported examples:
+              - "give me python code"
+              - "teach me FastAPI"
+              - "write SQL query"
+              - "what is machine learning"
+
+              For unsupported requests, always call:
+              unsupported_request(reason="not supported")
+
+              Examples:
+              User: "show parking in Tunis"
+              → call get_parking_lots_tool(city="Tunis")
+
+              User: "my subscriptions"
+              → call filter_subscriptions_tool()
+
+              User: "give me python code"
+              → call unsupported_request(reason="not supported")
+              """
+        else:
+            system_prompt = """
+              You are an AI assistant for Vivia Mobility, a smart parking platform.
+
+              Your job:
+              - Help with parking lots, plans, subscriptions, reservations, tariff grids, users, and reclamations.
+              - You must use the available tools for every supported platform-data request.
+              - You must never invent data.
+              - You must never answer from your own knowledge when the request is about platform data.
+
+              Behavior rules:
+              - If the request matches one of the available tools, call the most relevant tool.
+              - If the request does not match any available tool, call unsupported_request(reason="not supported").
+              - Keep the final answer short, clean, and helpful.
+              - If a tool returns JSON, summarize the useful result clearly.
+
+              User-specific scope rules:
+              - If userId is provided, treat the request as related to that specific user unless the admin explicitly asks for all records for all users.
+              - For example:
+                - "give me reservations" with userId provided → return reservations for that user only
+                - "give me subscriptions" with userId provided → return subscriptions for that user only
+                - "show my reservations" with userId provided → return reservations for that user only
+              - Only return all records when the admin explicitly asks for all platform records, such as:
+                - "show all reservations for all users"
+                - "list every subscription in the system"
+
+              Response style:
+              - If data belongs to a specific user, mention it clearly in the response.
+              - Example:
+                - "Reservations for Makrem are: ..."
+                - "Makrem has 2 active subscriptions: ..."
+              - If no records are found, say:
+                - "Makrem has no reservations."
+                - "No subscriptions were found for this user."
+
+              Supported topics:
+              - parking lots
+              - plans
+              - plan parking lots
+              - subscriptions
+              - reservations
+              - tariff grids
+              - users
+              - reclamations
+
+              Unsupported examples:
+              - give me python code
+              - teach me FastAPI
+              - write SQL query
+              - what is machine learning
+              """
+
+    agent = create_agent(
+        model=model,
+        tools=tools,
+        system_prompt=system_prompt
+    )
+    messages = agent.invoke({
+                                    "messages": [  { "role": "user", "content": (  f"""
+                                                                                        User ID: {data.userId}
+                                                                                        Question: {data.question}
+                                                                                        generalResponse: {data.generalResponse}
+                                                                                        Important:
+                                                                                        If generalResponse is False, treat the request as related to that specific user.
+                                                                                        """
+                                                                                                        if data.userId is not None
+                                                                                                        else data.question
+                                                                                                    )
+                                                                                                }
+                                                                                            ]
+                                                                                        })["messages"]
+
+    return messages[-1].content
