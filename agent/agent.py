@@ -270,11 +270,18 @@ def filter_plans_tool(
         db.close()
 
 
+from typing import Optional, List
+from langchain_core.tools import tool
+
+
 @tool
 def filter_plan_parking_lots_tool(
         id: Optional[int] = None,
         planId: Optional[int] = None,
-        parkingLotId: Optional[int] = None,
+
+        # CHANGED: int -> List[int]
+        parkingLotId: Optional[List[int]] = None,
+
         status: Optional[str] = None,
         renewFee: Optional[float] = None,
         subscriptionFee: Optional[float] = None,
@@ -285,14 +292,20 @@ def filter_plan_parking_lots_tool(
         skip: int = 0,
         limit: int = 20
 ) -> str:
-    """Filter plan parking lots by plan, parking lot, status, renew fee, and subscription fee."""
+    """
+    Filter plan parking lots by plan, parking lot, status,
+    renew fee, and subscription fee.
+
+    parkingLotId supports multiple IDs:
+    example -> [3, 4, 5, 7]
+    """
 
     db = SessionLocal()
     try:
         filters = {
             "id": id,
             "planId": planId,
-            "parkingLotId": parkingLotId,
+            "parkingLotId": parkingLotId,  # now list supported
             "status": status,
             "renewFee": renewFee,
             "subscriptionFee": subscriptionFee,
@@ -302,9 +315,15 @@ def filter_plan_parking_lots_tool(
             "subscriptionFeeMax": subscriptionFeeMax,
         }
 
-        results = filter_plan_parking_lots(db, filters, skip, limit)
+        results = filter_plan_parking_lots(
+            db,
+            filters,
+            skip,
+            limit
+        )
 
         return serialize_results(results)
+
     finally:
         db.close()
 
@@ -369,7 +388,23 @@ tools = [
     filter_subscriptions_tool
 ]
 
+from dotenv import load_dotenv
+import os
 
+from langgraph.checkpoint.mysql.pymysql import PyMySQLSaver
+
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
+
+# IMPORTANT:
+# LangGraph MySQL checkpointer uses mysql://
+# NOT mysql+pymysql://
+CHECKPOINTER_DB_URI = (
+    f"mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+)
 
 def get_agent_response(data: AgentRequest) -> str:
 
@@ -545,24 +580,69 @@ def get_agent_response(data: AgentRequest) -> str:
               - what is machine learning
               """
 
-    agent = create_agent(
-        model=model,
-        tools=tools,
-        system_prompt=system_prompt
-    )
-    messages = agent.invoke({
-                                    "messages": [  { "role": "user", "content": (  f"""
-                                                                                        User ID: {data.userId}
-                                                                                        Question: {data.question}
-                                                                                        generalResponse: {data.generalResponse}
-                                                                                        Important:
-                                                                                        If generalResponse is False, treat the request as related to that specific user.
-                                                                                        """
-                                                                                                        if data.userId is not None
-                                                                                                        else data.question
-                                                                                                    )
-                                                                                                }
-                                                                                            ]
-                                                                                        })["messages"]
+    
 
-    return messages[-1].content
+
+
+    with PyMySQLSaver.from_conn_string(CHECKPOINTER_DB_URI) as checkpointer:
+        # Run only first time to create tables
+        checkpointer.setup()
+
+
+
+        user_message = (
+            f"""
+               User ID: {data.userId}
+               Question: {data.question}
+               generalResponse: {data.generalResponse}
+
+               Important:
+               If generalResponse is False,
+               treat the request as related to that specific user.
+               """
+            if data.userId is not None
+            else data.question
+        )
+
+        # =========================================
+        # MySQL Checkpointer
+        # =========================================
+
+        with PyMySQLSaver.from_conn_string(CHECKPOINTER_DB_URI) as checkpointer:
+            # Run only first time to create tables
+            checkpointer.setup()
+
+            # Create agent WITH checkpointer
+            agent = create_agent(
+                model=model,
+                tools=tools,
+                system_prompt=system_prompt,
+                checkpointer=checkpointer
+            )
+
+
+            config = {
+                "configurable": {
+                    "thread_id": (
+                        f"userIII-{data.userId}"
+                        if data.userId is not None
+                        else "anonymous"
+                    )
+                }
+            }
+
+
+
+            result = agent.invoke(
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": user_message
+                        }
+                    ]
+                },
+                config=config
+            )
+
+    return result["messages"][-1].content
