@@ -111,7 +111,7 @@ class VectorStore:
         self.dense_retriever = self.vectorstore.as_retriever(
             search_type="mmr",
             search_kwargs={
-                "k": 5,
+                "k": 3,
                 "fetch_k": 20,
                 "lambda_mult": 0.8,
                 "filter": {"type": "text"},
