@@ -406,6 +406,8 @@ CHECKPOINTER_DB_URI = (
     f"mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 
+
+
 def get_agent_response(data: AgentRequest) -> str:
 
     print(data)
@@ -584,9 +586,7 @@ def get_agent_response(data: AgentRequest) -> str:
 
 
 
-    with PyMySQLSaver.from_conn_string(CHECKPOINTER_DB_URI) as checkpointer:
-        # Run only first time to create tables
-        checkpointer.setup()
+
 
 
 
