@@ -15,8 +15,6 @@ class GraphBuilder:
         self.node=AgentNode(llm,vector_store)
         self.graph=None
 
-
-
     def build_graph(self):
 
         builder=StateGraph(AgentState)
@@ -31,10 +29,10 @@ class GraphBuilder:
         self.graph=builder.compile()
         return self.graph
 
-    def run_graph(self, question: str) -> dict:
+    def run_graph(self, question: str,mode_response,user_id: int=None,reclamation_id :int=None) -> dict:
         if self.graph is None:
             self.build_graph()
 
 
-        initial_state = AgentState(question=question)
+        initial_state = AgentState(question=question,mode_response=mode_response,user_id=user_id,reclamation_id=reclamation_id)
         return self.graph.invoke(initial_state)

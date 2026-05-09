@@ -1,12 +1,17 @@
 from typing import List, Any
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import dynamic_prompt, ModelRequest
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import Tool
 from langgraph.checkpoint.mysql.pymysql import PyMySQLSaver
 
+from agent.context.context import Context
 from agent.state.agent_state import AgentState
 import os
+
+from schemas.agent_schema import ModeResponse
+
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
@@ -435,17 +440,152 @@ class AgentNode:
                         retriever_tool
                     ]
 
+    @dynamic_prompt
+    def mode_prompt(request: ModelRequest) -> str:
+        """Generate system prompt based on the mode of response."""
+        mode_response = request.runtime.context.get("mode_response", "user")
+        userId = request.runtime.context.get("userId", "user")
+
+        if mode_response == ModeResponse.general_response:
+            return f"""
+    You are an AI assistant for Vivia Mobility.
+
+    Rules:
+    - Always use tools for supported requests.
+    - Never invent data.
+    - Never answer platform questions from your own knowledge.
+    - If no tool matches, call unsupported_request.
+    - Keep answers short and clear.
+    - Summarize tool results cleanly.
+
+    Supported:
+    - parking lots
+    - plans
+    - plan parking lots
+    - subscriptions
+    - reservations
+    - tariff grids
+    - users
+    - reclamations
+    - document retrieval (RAG)
+
+    Unsupported:
+    - coding
+    - SQL
+    - tutorials
+    - general knowledge
+
+    Examples:
+    User: "show parking in Tunis"
+    → get_parking_lots_tool(city="Tunis")
+
+    User: "my subscriptions"
+    → filter_subscriptions_tool()
+
+    User: "teach me FastAPI"
+    → unsupported_request(reason="not supported")
+    """
+        elif mode_response == ModeResponse.user_response:return f"""
+You are an AI assistant for Vivia Mobility.
+
+Current context:
+- User ID: {userId}
+- Mode: user-specific response
+
+Rules:
+- Always use tools for supported platform requests.
+- Never invent data.
+- Never answer platform-data questions from your own knowledge.
+- Keep answers short and clear.
+
+User scope:
+- Reservation requests must use filter_reservations_tool(userId={userId}).
+- Subscription requests must use filter_subscriptions_tool(userId={userId}).
+- Personal profile/name/email/account requests must use filter_users_tool(id={userId}).
+
+Examples:
+- "show reservations" → filter_reservations_tool(userId={userId})
+- "show all reservations" → filter_reservations_tool(userId={userId})
+- "my subscriptions" → filter_subscriptions_tool(userId={userId})
+- "what is my name?" → filter_users_tool(id={userId})
+
+General mode restriction:
+- If the user asks for global/system-wide data, respond only:
+  "Please switch to general mode."
+
+Global/system-wide examples:
+- all users
+- all reservations in the system
+- all subscriptions for all users
+- parking availability in all parking lots
+- system statistics
+- another user's data
+
+Supported:
+- personal users/profile
+- personal subscriptions
+- personal reservations
+- reclamations
+- document retrieval
+
+Unsupported:
+- Python code
+- SQL
+- FastAPI tutorials
+- machine learning explanations
+
+If unsupported, call:
+unsupported_request(reason="not supported")
+"""
+
+        return  f"""
+You are an AI assistant for Vivia Mobility.
+
+Current user context:
+- User ID: {userId}
+
+Rules:
+- Use tools when platform data is needed.
+- Never invent data.
+- Reservations/subscriptions requests belong to this user unless explicitly stated otherwise.
+- Keep responses short, professional, and friendly.
+- Do not mention tools or internal systems.
+
+Tool rules:
+- plans → filter_plans_tool
+- reservations → filter_reservations_tool(userId={userId})
+- subscriptions → filter_subscriptions_tool(userId={userId})
+
+Example:
+Customer:
+"I want to know my subscriptions"
+
+Tool call:
+filter_subscriptions_tool(userId={userId})
+
+Response:
+"Hello Makrem,
+
+Thank you for contacting Vivia Mobility.
+
+You currently have 2 active subscriptions linked to your account.
+
+Please let us know if you need any additional assistance.
+
+Best regards,
+Vivia Mobility Team"
+"""
+
     def _build_agent(self):
         """ReAct agent with tools"""
         tools = self._build_tools()
-        system_prompt = """
-        You are a tool-using assistant.
-        """
+
         self._agent= create_agent(
                 self.llm,
                 tools=tools,
-                system_prompt=system_prompt,
-                checkpointer=self.checkpointer
+                middleware=[self.mode_prompt],
+                checkpointer=self.checkpointer,
+                context_schema=Context
 )
 
     def generate_answer(self, state: AgentState) -> AgentState:
@@ -455,14 +595,17 @@ class AgentNode:
         config = {
             "configurable": {
                 "thread_id": (
-                    f"userIII-"
+                    f"reclamation_{state.reclamation_id}"
                 )
             }
         }
         result = self._agent.invoke({
             "messages": [HumanMessage(content=state.question)]
         },
-            config=config
+            config=config,
+            context={"mode_response": state.mode_response,
+                     "userId": state.user_id
+                     }
         )
 
         final_message = result["messages"][-1].content

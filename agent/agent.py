@@ -1,5 +1,8 @@
 import os
+from typing import TypedDict
+
 from dotenv import load_dotenv
+from langchain.agents.middleware import dynamic_prompt, ModelRequest
 from langchain_core import messages
 
 from schemas.agent_schema import AgentRequest
@@ -7,6 +10,8 @@ from schemas.agent_schema import AgentRequest
 load_dotenv()
 os.environ['GROQ_API_KEY'] = os.getenv('GROQ_API_KEY')
 from langchain_groq import ChatGroq
+from agent.vectorstore.vectorstore import VectorStore
+from agent.graph.graph_builder import GraphBuilder
 
 model = ChatGroq(
     model="openai/gpt-oss-120b",
@@ -18,404 +23,105 @@ model = ChatGroq(
     # other params...
 )
 
-
-from services.subscription_service import filter_subscriptions
-from services.plan_parking_lot_service import filter_plan_parking_lots
-from services.plan_service import filter_plans
-from services.user_service import filter_users
-from services.reclamation_service import filter_reclamations
-from datetime import date, datetime
-from services.tarif_grid_service import filter_tarif_grids
-import json
-from typing import Optional
-from langchain_core.tools import tool
-from services.parking_lot_service import get_parking_lots
-
-def serialize_results(results):
-    return json.dumps(
-        [r.model_dump(mode="json") for r in results],
-        indent=2,
-        default=str
-    )
+vectorstore = VectorStore()
+vectorstore.setup()
 
 
+@dynamic_prompt
+def mode_prompt(request: ModelRequest) -> str:
+    """Generate system prompt based on the mode of response."""
+    mode_response = request.runtime.context.get("mode_response", "user")
 
-@tool
-def get_parking_lots_tool(
-        id: Optional[int] = None,
-        name: Optional[str] = None,
-        address: Optional[str] = None,
-        city: Optional[str] = None,
-        country: Optional[str] = None,
-        covered: Optional[bool] = None,
-        numberOfPlaces: Optional[int] = None,
-        numberOfPlaceAvailable: Optional[int] = None,
-        description: Optional[str] = None,
-        statusParking: Optional[str] = None,
-        reservationAvailability: Optional[bool] = None,
-        subscriptionAvailability: Optional[bool] = None,
-        tarifGridId: Optional[int] = None,
-        skip: int = 0,
-        limit: int = 20
-) -> str:
-    """Filter parking lots by id, name, address, city, country, status, availability, and tariff grid."""
+    prompt_template = "your are an AI assistant for Vivia Mobility."
 
-    db = SessionLocal()
-    try:
-        filters = {
-            "id": id,
-            "name": name,
-            "address": address,
-            "city": city,
-            "country": country,
-            "covered": covered,
-            "numberOfPlaces": numberOfPlaces,
-            "numberOfPlaceAvailable": numberOfPlaceAvailable,
-            "description": description,
-            "statusParking": statusParking,
-            "reservationAvailability": reservationAvailability,
-            "subscriptionAvailability": subscriptionAvailability,
-            "tarifGridId": tarifGridId,
-        }
+    if mode_response == "general_response":
+        return f"""
+You are an AI assistant for Vivia Mobility.
 
-        results = get_parking_lots(db, filters, skip, limit)
+Rules:
+- Always use tools for supported requests.
+- Never invent data.
+- Never answer platform questions from your own knowledge.
+- If no tool matches, call unsupported_request.
+- Keep answers short and clear.
+- Summarize tool results cleanly.
 
-        return serialize_results(results)
-    finally:
-        db.close()
+Supported:
+- parking lots
+- plans
+- plan parking lots
+- subscriptions
+- reservations
+- tariff grids
+- users
+- reclamations
+- document retrieval (RAG)
 
+Unsupported:
+- coding
+- SQL
+- tutorials
+- general knowledge
 
-@tool
-def filter_tarif_grids_tool(
-        id: Optional[int] = None,
-        name: Optional[str] = None,
-        skip: int = 0,
-        limit: int = 20
-) -> str:
-    """Filter tarif grids by id or name."""
+Examples:
+User: "show parking in Tunis"
+→ get_parking_lots_tool(city="Tunis")
 
-    db = SessionLocal()
-    try:
-        filters = {
-            "id": id,
-            "name": name
-        }
+User: "my subscriptions"
+→ filter_subscriptions_tool()
 
-        results = filter_tarif_grids(db, filters, skip, limit)
+User: "teach me FastAPI"
+→ unsupported_request(reason="not supported")
+"""
+    elif mode_response == "user_response":
+        return f"""
+You are an AI assistant for Vivia Mobility.
 
-        return serialize_results(results)
-    finally:
-        db.close()
+Rules:
+- Always use tools for supported requests.
+- Never invent data.
+- Never answer platform-data questions from your own knowledge.
+- If no tool matches, call:
+  unsupported_request(reason="not supported")
+- Keep answers short and clear.
+- Summarize JSON results cleanly.
 
+User scope:
+- If userId is provided, return data only for that user.
+- Return all records only if explicitly requested.
 
-from langchain_core.tools import tool
-from database import SessionLocal
-from services.reservation_service import filter_reservations
+Examples:
+- "show my reservations" → reservations for that user only
+- "show all reservations" → all reservations
 
+Response style:
+- Mention user name when relevant.
+- If no data exists, clearly say no records were found.
 
-@tool
-def filter_reservations_tool(
-        id: Optional[int] = None,
-        userId: Optional[int] = None,
-        parkingLotId: Optional[int] = None,
-        status: Optional[str] = None,
-        totalPrice: Optional[float] = None,
-        startDateFrom: Optional[date] = None,
-        startDateTo: Optional[date] = None,
-        endDateFrom: Optional[date] = None,
-        endDateTo: Optional[date] = None,
-        entryTimeFrom: Optional[date] = None,
-        entryTimeTo: Optional[date] = None,
-        skip: int = 0,
-        limit: int = 20,
-) -> str:
-    """Filter reservations by id, user, parking lot, status, price, and date ranges."""
+Supported:
+- parking lots
+- plans
+- plan parking lots
+- subscriptions
+- reservations
+- tariff grids
+- users
+- reclamations
+- document retrieval
 
-    db = SessionLocal()
-    try:
-        filters = {
-            "id": id,
-            "userId": userId,
-            "parkingLotId": parkingLotId,
-            "status": status,
-            "totalPrice": totalPrice,
-            "startDateFrom": startDateFrom,
-            "startDateTo": startDateTo,
-            "endDateFrom": endDateFrom,
-            "endDateTo": endDateTo,
-            "entryTimeFrom": entryTimeFrom,
-            "entryTimeTo": entryTimeTo,
-        }
+Unsupported:
+- Python code
+- SQL
+- FastAPI tutorials
+- machine learning explanations
+"""
 
-        results = filter_reservations(
-            db=db,
-            filters=filters,
-            skip=skip,
-            limit=limit,
-        )
-
-        return serialize_results(results)
-    finally:
-        db.close()
-
-@tool
-def filter_users_tool(
-        id: int | None = None,
-        firstName: str | None = None,
-        lastName: str | None = None,
-        email: str | None = None,
-        phone: str | None = None,
-        role: str | None = None,
-        accountStatus: str | None = None,
-        skip: int = 0,
-        limit: int = 20
-) -> str:
-    """
-       Filter users by id, name, email, phone, role, or account status.
-
-       Use this tool when:
-       - user asks about users
-       - search users by name or email
-       - filter by role or status
-       """
-    db = SessionLocal()
-
-    try:
-        filters = {
-            "id": id,
-            "firstName": firstName,
-            "lastName": lastName,
-            "email": email,
-            "phone": phone,
-            "role": role,
-            "accountStatus": accountStatus,
-        }
-
-        result = filter_users(db, filters, skip, limit)
-        return serialize_results(result)
-
-    finally:
-        db.close()
-
-
-@tool
-def filter_reclamations_tool(
-        id: int | None = None,
-        clientId: int | None = None,
-        adminId: int | None = None,
-        status: str | None = None,
-        subject: str | None = None,
-        content: str | None = None,
-        solution: str | None = None,
-        skip: int = 0,
-        limit: int = 20
-) -> str:
-    """Filter reclamations by id, client, admin, status, subject, content, or solution."""
-
-    db = SessionLocal()
-    try:
-        filters = {
-            "id": id,
-            "clientId": clientId,
-            "adminId": adminId,
-            "status": status,
-            "subject": subject,
-            "content": content,
-            "solution": solution,
-        }
-
-        results = filter_reclamations(db, filters, skip, limit)
-        return serialize_results(results)
-
-    finally:
-        db.close()
-
-
-@tool
-def filter_plans_tool(
-        id: Optional[int] = None,
-        name: Optional[str] = None,
-        NumberOfBenefitDays: Optional[int] = None,
-        startDateFrom: Optional[datetime] = None,
-        startDateTo: Optional[datetime] = None,
-        endDateFrom: Optional[datetime] = None,
-        endDateTo: Optional[datetime] = None,
-        isActive: Optional[bool] = None,
-        skip: int = 0,
-        limit: int = 20
-) -> str:
-    """Filter plans by name, benefit days, and date ranges."""
-
-    db = SessionLocal()
-    try:
-        filters = {
-            "id": id,
-            "name": name,
-            "NumberOfBenefitDays": NumberOfBenefitDays,
-            "startDateFrom": startDateFrom,
-            "startDateTo": startDateTo,
-            "endDateFrom": endDateFrom,
-            "endDateTo": endDateTo,
-            "isActive": isActive
-        }
-
-        results = filter_plans(db, filters, skip, limit)
-
-        return json.dumps(
-            [r.model_dump(mode="json") for r in results],
-            indent=2,
-            default=str
-        )
-    finally:
-        db.close()
-
-
-from typing import Optional, List
-from langchain_core.tools import tool
-
-
-@tool
-def filter_plan_parking_lots_tool(
-        id: Optional[int] = None,
-        planId: Optional[int] = None,
-
-        # CHANGED: int -> List[int]
-        parkingLotId: Optional[List[int]] = None,
-
-        status: Optional[str] = None,
-        renewFee: Optional[float] = None,
-        subscriptionFee: Optional[float] = None,
-        renewFeeMin: Optional[float] = None,
-        renewFeeMax: Optional[float] = None,
-        subscriptionFeeMin: Optional[float] = None,
-        subscriptionFeeMax: Optional[float] = None,
-        skip: int = 0,
-        limit: int = 20
-) -> str:
-    """
-    Filter plan parking lots by plan, parking lot, status,
-    renew fee, and subscription fee.
-
-    parkingLotId supports multiple IDs:
-    example -> [3, 4, 5, 7]
-    """
-
-    db = SessionLocal()
-    try:
-        filters = {
-            "id": id,
-            "planId": planId,
-            "parkingLotId": parkingLotId,  # now list supported
-            "status": status,
-            "renewFee": renewFee,
-            "subscriptionFee": subscriptionFee,
-            "renewFeeMin": renewFeeMin,
-            "renewFeeMax": renewFeeMax,
-            "subscriptionFeeMin": subscriptionFeeMin,
-            "subscriptionFeeMax": subscriptionFeeMax,
-        }
-
-        results = filter_plan_parking_lots(
-            db,
-            filters,
-            skip,
-            limit
-        )
-
-        return serialize_results(results)
-
-    finally:
-        db.close()
-
-
-@tool
-def filter_subscriptions_tool(
-        id: Optional[int] = None,
-        status: Optional[str] = None,
-        planParkingLotId: Optional[int] = None,
-        userId: Optional[int] = None,
-        startDateFrom: Optional[datetime] = None,
-        startDateTo: Optional[datetime] = None,
-        endDateFrom: Optional[datetime] = None,
-        endDateTo: Optional[datetime] = None,
-        isActive: Optional[bool] = None,
-        userEmail: Optional[str] = None,
-        userName: Optional[str] = None,
-        skip: int = 0,
-        limit: int = 20
-) -> str:
-    """Filter subscriptions by id, status, user, plan parking lot, dates, and active state."""
-
-    db = SessionLocal()
-    try:
-        filters = {
-            "id": id,
-            "status": status,
-            "planParkingLotId": planParkingLotId,
-            "userId": userId,
-            "startDateFrom": startDateFrom,
-            "startDateTo": startDateTo,
-            "endDateFrom": endDateFrom,
-            "endDateTo": endDateTo,
-            "isActive": isActive,
-            "userEmail": userEmail,
-            "userName": userName,
-        }
-
-        results = filter_subscriptions(db, filters, skip, limit)
-
-        return serialize_results(results)
-    finally:
-        db.close()
-from langchain.agents import create_agent
-from langchain_core.tools import tool
-
-@tool
-def unsupported_request(reason: str) -> str:
-    """Use this tool when the user asks for something that is خارج available tools."""
-    return "This request is not supported by the available tools."
-
-
-tools = [
-    unsupported_request,
-    filter_tarif_grids_tool,
-    filter_reclamations_tool,
-    filter_users_tool,
-    filter_reservations_tool,
-    get_parking_lots_tool,
-    filter_plans_tool,
-    filter_plan_parking_lots_tool,
-    filter_subscriptions_tool
-]
-
-from dotenv import load_dotenv
-import os
-
-from langgraph.checkpoint.mysql.pymysql import PyMySQLSaver
-
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
-
-# IMPORTANT:
-# LangGraph MySQL checkpointer uses mysql://
-# NOT mysql+pymysql://
-CHECKPOINTER_DB_URI = (
-    f"mysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-
-
+    return prompt_template
 
 def get_agent_response(data: AgentRequest) -> str:
 
     print(data)
-
-
-
-    if data.generationResponse:
-        system_prompt = """
+    system_prompt = """
         You are an AI assistant for Vivia Mobility, a smart parking platform.
 
         Your role:
@@ -482,105 +188,6 @@ def get_agent_response(data: AgentRequest) -> str:
         Best regards,  
         Vivia Mobility Team"
         """
-    else:
-        if data.generalResponse:
-            system_prompt = """
-              You are an AI assistant for Vivia Mobility, a smart parking platform.
-
-              Your job:
-              - Help admin with parking lots, plans, subscriptions, reservations, tariff grids, users, and reclamations.
-              - You must use the available tools for every supported request.
-              - You must never invent data.
-              - You must never answer from your own knowledge when the request is about platform data.
-
-              Strict rules:
-              - If the request matches one of the available tools, call the most relevant tool.
-              - If the request does not match any available tool, call unsupported_request.
-              - Do not generate Python code, SQL, examples, tutorials, or general knowledge answers unless a tool explicitly provides that information.
-              - Do not hallucinate.
-              - Keep the final answer short, clean, and helpful.
-              - If a tool returns JSON, summarize the useful result clearly.
-
-              Supported topics:
-              - parking lots
-              - plans
-              - plan parking lots
-              - subscriptions
-              - reservations
-              - tariff grids
-              - users
-              - reclamations
-
-              Unsupported examples:
-              - "give me python code"
-              - "teach me FastAPI"
-              - "write SQL query"
-              - "what is machine learning"
-
-              For unsupported requests, always call:
-              unsupported_request(reason="not supported")
-
-              Examples:
-              User: "show parking in Tunis"
-              → call get_parking_lots_tool(city="Tunis")
-
-              User: "my subscriptions"
-              → call filter_subscriptions_tool()
-
-              User: "give me python code"
-              → call unsupported_request(reason="not supported")
-              """
-        else:
-            system_prompt = """
-              You are an AI assistant for Vivia Mobility, a smart parking platform.
-
-              Your job:
-              - Help with parking lots, plans, subscriptions, reservations, tariff grids, users, and reclamations.
-              - You must use the available tools for every supported platform-data request.
-              - You must never invent data.
-              - You must never answer from your own knowledge when the request is about platform data.
-
-              Behavior rules:
-              - If the request matches one of the available tools, call the most relevant tool.
-              - If the request does not match any available tool, call unsupported_request(reason="not supported").
-              - Keep the final answer short, clean, and helpful.
-              - If a tool returns JSON, summarize the useful result clearly.
-
-              User-specific scope rules:
-              - If userId is provided, treat the request as related to that specific user unless the admin explicitly asks for all records for all users.
-              - For example:
-                - "give me reservations" with userId provided → return reservations for that user only
-                - "give me subscriptions" with userId provided → return subscriptions for that user only
-                - "show my reservations" with userId provided → return reservations for that user only
-              - Only return all records when the admin explicitly asks for all platform records, such as:
-                - "show all reservations for all users"
-                - "list every subscription in the system"
-
-              Response style:
-              - If data belongs to a specific user, mention it clearly in the response.
-              - Example:
-                - "Reservations for Makrem are: ..."
-                - "Makrem has 2 active subscriptions: ..."
-              - If no records are found, say:
-                - "Makrem has no reservations."
-                - "No subscriptions were found for this user."
-
-              Supported topics:
-              - parking lots
-              - plans
-              - plan parking lots
-              - subscriptions
-              - reservations
-              - tariff grids
-              - users
-              - reclamations
-
-              Unsupported examples:
-              - give me python code
-              - teach me FastAPI
-              - write SQL query
-              - what is machine learning
-              """
 
     
 
@@ -590,7 +197,7 @@ def get_agent_response(data: AgentRequest) -> str:
 
 
 
-        user_message = (
+    user_message = (
             f"""
                User ID: {data.userId}
                Question: {data.question}
@@ -604,36 +211,13 @@ def get_agent_response(data: AgentRequest) -> str:
             else data.question
         )
 
-        # =========================================
-        # MySQL Checkpointer
-        # =========================================
-
-        with PyMySQLSaver.from_conn_string(CHECKPOINTER_DB_URI) as checkpointer:
-            # Run only first time to create tables
-            checkpointer.setup()
-
-            # Create agent WITH checkpointer
-            agent = create_agent(
-                model=model,
-                tools=tools,
-                system_prompt=system_prompt,
-                checkpointer=checkpointer
-            )
 
 
-            config = {
-                "configurable": {
-                    "thread_id": (
-                        f"userIII-{data.userId}"
-                        if data.userId is not None
-                        else "anonymous"
-                    )
-                }
-            }
+        graph_builder = GraphBuilder(llm=model, vector_store=vectorstore)
+        result = graph_builder.run_graph("WHT IS my name ?")
+        print(result["messages"])
 
-
-
-            result = agent.invoke(
+        result = agent.invoke(
                 {
                     "messages": [
                         {
@@ -645,4 +229,4 @@ def get_agent_response(data: AgentRequest) -> str:
                 config=config
             )
 
-    return result["messages"][-1].content
+    return result["messages"]
