@@ -13,8 +13,8 @@ from langchain_classic.retrievers import EnsembleRetriever
 class VectorStore:
     def __init__(
         self,
-        persist_directory: str = "./chroma_db",
-        chunks_path: str = "./chunks.pkl",
+        persist_directory: str = "./agent/storage/chroma_db",
+        chunks_path: str = "./agent/storage/chunks.pkl",
         collection_name: str = "test_collection",
         model_name: str = "BAAI/bge-m3",
         device: str = "cuda",
