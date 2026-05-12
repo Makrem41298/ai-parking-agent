@@ -26,6 +26,7 @@ class JWTBearer(HTTPBearer):
     def verify_jwt(self, jwtoken: str) -> bool:
         try:
             payload = decodeJWT(jwtoken)
+
         except Exception:
             return False
 
@@ -33,6 +34,7 @@ class JWTBearer(HTTPBearer):
             return False
 
         role = payload.get("role")
+        print(role)
 
         if role not in [Role.ADMIN, Role.SUPER_ADMIN]:
             return False

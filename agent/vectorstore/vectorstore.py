@@ -1,6 +1,7 @@
 import os
 import pickle
 import hashlib
+import shutil
 from typing import List, Optional
 
 from langchain_core.documents import Document
@@ -80,10 +81,16 @@ class VectorStore:
     def create_vectorstore(self, docs: List[Document], save_chunks: bool = True) -> Chroma:
         os.makedirs(self.persist_directory, exist_ok=True)
 
+
+
         if save_chunks:
             self.save_chunks_file(docs)
 
         ids = self._make_ids(docs)
+
+
+        if self.vectorstore is not None:
+            self.vectorstore.delete_collection()
 
         self.vectorstore = Chroma.from_documents(
             documents=docs,
@@ -98,9 +105,10 @@ class VectorStore:
 
         return self.vectorstore
 
-    def load_vectorstore(self) -> Chroma:
+    def load_vectorstore(self) -> Chroma | None:
         if not os.path.exists(self.persist_directory):
-            raise FileNotFoundError(f"Chroma folder not found: {self.persist_directory}")
+            print(f"Chroma folder not found: {self.persist_directory}")
+            return None
 
         self.vectorstore = Chroma(
             persist_directory=self.persist_directory,
@@ -108,48 +116,61 @@ class VectorStore:
             collection_name=self.collection_name,
         )
 
+        count = self.vectorstore._collection.count()
+
+        if count == 0:
+            print("Chroma is empty. Dense retriever not created.")
+            self.dense_retriever = None
+            return self.vectorstore
+
         self.dense_retriever = self.vectorstore.as_retriever(
             search_type="mmr",
             search_kwargs={
                 "k": 3,
                 "fetch_k": 20,
                 "lambda_mult": 0.8,
-                "filter": {"type": "text"},
+                # remove filter if your metadata does not have type=text
+                # "filter": {"type": "text"},
             },
         )
 
-        print(f"Loaded Chroma with {self.vectorstore._collection.count()} vectors")
+        print(f"Loaded Chroma with {count} vectors")
 
         return self.vectorstore
 
     def build_hybrid_retriever(
-        self,
-        bm25_weight: float = 0.4,
-        dense_weight: float = 0.6,
+            self,
+            bm25_weight: float = 0.4,
+            dense_weight: float = 0.6,
     ):
-        if self.bm25_retriever is None:
-            raise ValueError("BM25 retriever not initialized. Call load_chunks_file() first.")
+        retrievers = []
+        weights = []
 
-        if self.dense_retriever is None:
-            raise ValueError("Dense retriever not initialized. Call load_vectorstore() first.")
+        if self.bm25_retriever is not None:
+            retrievers.append(self.bm25_retriever)
+            weights.append(bm25_weight)
 
-        total = bm25_weight + dense_weight
+        if self.dense_retriever is not None:
+            retrievers.append(self.dense_retriever)
+            weights.append(dense_weight)
 
-        if total <= 0:
-            raise ValueError("Weights must be positive.")
+        if len(retrievers) == 0:
+            print("No retriever available.")
+            self.hybrid_retriever = None
+            return None
 
-        bm25_weight = bm25_weight / total
-        dense_weight = dense_weight / total
+        if len(retrievers) == 1:
+            print("Only one retriever available. Using it directly.")
+            self.hybrid_retriever = retrievers[0]
+            return self.hybrid_retriever
+
+        total = sum(weights)
+
+        weights = [w / total for w in weights]
 
         self.hybrid_retriever = EnsembleRetriever(
-            retrievers=[
-                self.bm25_retriever,
-                self.dense_retriever,
-            ],
-            weights=[
-                bm25_weight,
-                dense_weight,
-            ],
+            retrievers=retrievers,
+            weights=weights,
         )
 
         return self.hybrid_retriever
