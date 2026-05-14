@@ -35,33 +35,7 @@ async def save_files(background_tasks: BackgroundTasks,files: List[UploadFile] =
 @api_router.get("/files")
 def get_files():
 
-    BASE_DIR = "agent/data"
-
-    files_data = []
-    file_id = 1
-
-    for root, dirs, files in os.walk(BASE_DIR):
-
-        for file in files:
-
-            file_path = os.path.join(root, file)
-
-            stats = os.stat(file_path)
-
-            files_data.append({
-                "id": file_id,
-                "filename": file,
-                "size": stats.st_size,
-                "createdAt": datetime.fromtimestamp(
-                    stats.st_ctime
-                ).isoformat()
-            })
-
-            file_id += 1
-
-    return {
-        "files": files_data
-    }
+    return agent_service.get_files()
 
 @api_router.post("/files/delete-batch")
 def delete_files_route(

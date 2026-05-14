@@ -10,4 +10,5 @@ class AgentState(BaseModel):
     mode_response: str | None = None
     user_id: int | None = None
     reclamation_id: int | None = None
+    number_vectors: int | None = None
     answer: str | None = None

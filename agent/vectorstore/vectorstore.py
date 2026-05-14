@@ -4,6 +4,7 @@ import hashlib
 import shutil
 from typing import List, Optional
 
+import chromadb
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -73,24 +74,28 @@ class VectorStore:
 
         print(f"Loaded {len(self.docs)} chunks")
 
+        if not self.docs:
+            print("Chunks file is empty. BM25 retriever not created.")
+            self.bm25_retriever = None
+            return self.docs
+
         self.bm25_retriever = BM25Retriever.from_documents(self.docs)
         self.bm25_retriever.k = 5
 
         return self.docs
 
     def create_vectorstore(self, docs: List[Document], save_chunks: bool = True) -> Chroma:
-        os.makedirs(self.persist_directory, exist_ok=True)
-
-
+        if not docs:
+            raise ValueError("No documents to index. docs list is empty.")
 
         if save_chunks:
             self.save_chunks_file(docs)
 
+
+
+        os.makedirs(self.persist_directory, exist_ok=True)
+
         ids = self._make_ids(docs)
-
-
-        if self.vectorstore is not None:
-            self.vectorstore.delete_collection()
 
         self.vectorstore = Chroma.from_documents(
             documents=docs,
@@ -101,10 +106,21 @@ class VectorStore:
         )
 
         print(f"Vector store created with {self.vectorstore._collection.count()} vectors")
-        print(f"Persisted to: {self.persist_directory}")
-
         return self.vectorstore
 
+
+    def reset_collection(self):
+        self.dense_retriever = None
+        self.bm25_retriever = None
+        self.hybrid_retriever = None
+        self.docs: Optional[List[Document]] = None
+        client = chromadb.PersistentClient(path=self.persist_directory)
+
+        try:
+            client.delete_collection(name=self.collection_name)
+            print(f"Deleted collection: {self.collection_name}")
+        except Exception as e:
+            print(f"Collection not found: {e}")
     def load_vectorstore(self) -> Chroma | None:
         if not os.path.exists(self.persist_directory):
             print(f"Chroma folder not found: {self.persist_directory}")
@@ -179,6 +195,21 @@ class VectorStore:
         self.load_chunks_file()
         self.load_vectorstore()
         return self.build_hybrid_retriever()
+
+    def count_vectors(self):
+        client = chromadb.PersistentClient(path=self.persist_directory)
+
+        try:
+            collection = client.get_collection(
+                name=self.collection_name
+            )
+
+            return collection.count()
+
+        except Exception:
+            return 0
+
+
 
     def retrieve(self, query: str):
         if self.hybrid_retriever is None:

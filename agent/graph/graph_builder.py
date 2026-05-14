@@ -29,10 +29,10 @@ class GraphBuilder:
         self.graph=builder.compile()
         return self.graph
 
-    def run_graph(self, question: str,mode_response,user_id: int=None,reclamation_id :int=None) -> dict:
+    def run_graph(self, question: str,mode_response,user_id: int=None,reclamation_id :int=None,number_vectors:int=None) -> dict:
         if self.graph is None:
             self.build_graph()
 
 
-        initial_state = AgentState(question=question,mode_response=mode_response,user_id=user_id,reclamation_id=reclamation_id)
+        initial_state = AgentState(question=question,mode_response=mode_response,user_id=user_id,reclamation_id=reclamation_id,number_vectors=number_vectors)
         return self.graph.invoke(initial_state)

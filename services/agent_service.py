@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import datetime
 from typing import List
 from fastapi.responses import FileResponse
 
@@ -25,7 +26,7 @@ os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
 
 model = ChatGroq(
-    model="openai/gpt-oss-120b",
+    model="openai/gpt-oss-20b",
     temperature=0,
     reasoning_format="parsed",
     max_retries=2,
@@ -42,15 +43,49 @@ graph_builder = GraphBuilder(
 
 
 def get_agent_response(data: AgentRequest) -> str:
+    print(f"number of vectors: {vector_store.count_vectors()}")
     result = graph_builder.run_graph(
         question=data.question,
         user_id=data.userId,
         reclamation_id=data.reclamationId,
         mode_response=data.mode_response,
+        number_vectors=vector_store.count_vectors()
+
     )
+
 
     return result.get("answer", "")
 
+
+def get_files():
+
+    BASE_DIR = "agent/data"
+
+    files_data = []
+    file_id = 1
+
+    for root, dirs, files in os.walk(BASE_DIR):
+
+        for file in files:
+
+            file_path = os.path.join(root, file)
+
+            stats = os.stat(file_path)
+
+            files_data.append({
+                "id": file_id,
+                "filename": file,
+                "size": stats.st_size,
+                "createdAt": datetime.fromtimestamp(
+                    stats.st_ctime
+                ).isoformat()
+            })
+
+            file_id += 1
+
+    return {
+        "files": files_data
+    }
 
 
 processor = DocumentProcessor()
@@ -138,6 +173,7 @@ vectorstore_status = {
 def rebuild_vectorstore():
 
     try:
+        vector_store.reset_collection()
         pdf_docs = processor.process_pdf_folder("agent/data/pdf")
         txt_docs = processor.process_text_folder("agent/data/text", extension=".txt")
         word_docs = processor.process_word_folder("agent/data/word")
@@ -153,7 +189,7 @@ def rebuild_vectorstore():
             docs=docs,
             save_chunks=True
         )
-
+        vector_store.setup()
         vectorstore_status["status"] = "completed"
 
         print("Vectorstore rebuilt successfully")
