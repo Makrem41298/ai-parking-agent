@@ -1,0 +1,218 @@
+import os
+import pickle
+import hashlib
+import shutil
+from typing import List, Optional
+
+import chromadb
+from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers import EnsembleRetriever
+
+
+class VectorStore:
+    def __init__(
+        self,
+        persist_directory: str = "./agent/storage/chroma_db",
+        chunks_path: str = "./agent/storage/chunks.pkl",
+        collection_name: str = "test_collection",
+        model_name: str = "BAAI/bge-m3",
+        device: str = "cuda",
+    ):
+        self.persist_directory = persist_directory
+        self.chunks_path = chunks_path
+        self.collection_name = collection_name
+
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name=model_name,
+            model_kwargs={"device": device},
+            encode_kwargs={
+                "batch_size": 1,
+                "normalize_embeddings": True,
+            },
+        )
+
+        self.vectorstore: Optional[Chroma] = None
+        self.dense_retriever = None
+        self.bm25_retriever = None
+        self.hybrid_retriever = None
+        self.docs: Optional[List[Document]] = None
+
+    def _make_ids(self, docs: List[Document]) -> List[str]:
+        ids = []
+
+        for doc in docs:
+            file_name = doc.metadata.get("file", "unknown")
+            page = doc.metadata.get("page", 0)
+            chunk_index = doc.metadata.get("chunk_index", 0)
+
+            raw_id = f"{file_name}-{page}-{chunk_index}-{doc.page_content[:100]}"
+            stable_id = hashlib.md5(raw_id.encode("utf-8")).hexdigest()
+            ids.append(stable_id)
+
+        return ids
+
+    def save_chunks_file(self, docs: List[Document]) -> None:
+        folder = os.path.dirname(self.chunks_path)
+
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+
+        with open(self.chunks_path, "wb") as file:
+            pickle.dump(docs, file)
+
+        print(f"Saved {len(docs)} chunks to {self.chunks_path}")
+
+    def load_chunks_file(self) -> List[Document]:
+        if not os.path.exists(self.chunks_path):
+            raise FileNotFoundError(f"Chunks file not found: {self.chunks_path}")
+
+        with open(self.chunks_path, "rb") as file:
+            self.docs = pickle.load(file)
+
+        print(f"Loaded {len(self.docs)} chunks")
+
+        if not self.docs:
+            print("Chunks file is empty. BM25 retriever not created.")
+            self.bm25_retriever = None
+            return self.docs
+
+        self.bm25_retriever = BM25Retriever.from_documents(self.docs)
+        self.bm25_retriever.k = 5
+
+        return self.docs
+
+    def create_vectorstore(self, docs: List[Document], save_chunks: bool = True) -> Chroma:
+        if not docs:
+            raise ValueError("No documents to index. docs list is empty.")
+
+        if save_chunks:
+            self.save_chunks_file(docs)
+
+
+
+        os.makedirs(self.persist_directory, exist_ok=True)
+
+        ids = self._make_ids(docs)
+
+        self.vectorstore = Chroma.from_documents(
+            documents=docs,
+            embedding=self.embeddings,
+            ids=ids,
+            persist_directory=self.persist_directory,
+            collection_name=self.collection_name,
+        )
+
+        print(f"Vector store created with {self.vectorstore._collection.count()} vectors")
+        return self.vectorstore
+
+
+    def reset_collection(self):
+        self.dense_retriever = None
+        self.bm25_retriever = None
+        self.hybrid_retriever = None
+        self.docs: Optional[List[Document]] = None
+        client = chromadb.PersistentClient(path=self.persist_directory)
+
+        try:
+            client.delete_collection(name=self.collection_name)
+            print(f"Deleted collection: {self.collection_name}")
+        except Exception as e:
+            print(f"Collection not found: {e}")
+    def load_vectorstore(self) -> Chroma | None:
+        if not os.path.exists(self.persist_directory):
+            print(f"Chroma folder not found: {self.persist_directory}")
+            return None
+
+        self.vectorstore = Chroma(
+            persist_directory=self.persist_directory,
+            embedding_function=self.embeddings,
+            collection_name=self.collection_name,
+        )
+
+        count = self.vectorstore._collection.count()
+
+        if count == 0:
+            print("Chroma is empty. Dense retriever not created.")
+            self.dense_retriever = None
+            return self.vectorstore
+
+        self.dense_retriever = self.vectorstore.as_retriever(
+            search_type="mmr",
+            search_kwargs={
+                "k": 3,
+                "fetch_k": 20,
+                "lambda_mult": 0.8,
+                # remove filter if your metadata does not have type=text
+                # "filter": {"type": "text"},
+            },
+        )
+
+        print(f"Loaded Chroma with {count} vectors")
+
+        return self.vectorstore
+
+    def build_hybrid_retriever(
+            self,
+            bm25_weight: float = 0.4,
+            dense_weight: float = 0.6,
+    ):
+        retrievers = []
+        weights = []
+
+        if self.bm25_retriever is not None:
+            retrievers.append(self.bm25_retriever)
+            weights.append(bm25_weight)
+
+        if self.dense_retriever is not None:
+            retrievers.append(self.dense_retriever)
+            weights.append(dense_weight)
+
+        if len(retrievers) == 0:
+            print("No retriever available.")
+            self.hybrid_retriever = None
+            return None
+
+        if len(retrievers) == 1:
+            print("Only one retriever available. Using it directly.")
+            self.hybrid_retriever = retrievers[0]
+            return self.hybrid_retriever
+
+        total = sum(weights)
+
+        weights = [w / total for w in weights]
+
+        self.hybrid_retriever = EnsembleRetriever(
+            retrievers=retrievers,
+            weights=weights,
+        )
+
+        return self.hybrid_retriever
+
+    def setup(self):
+        self.load_chunks_file()
+        self.load_vectorstore()
+        return self.build_hybrid_retriever()
+
+    def count_vectors(self):
+        client = chromadb.PersistentClient(path=self.persist_directory)
+
+        try:
+            collection = client.get_collection(
+                name=self.collection_name
+            )
+
+            return collection.count()
+
+        except Exception:
+            return 0
+
+
+
+    def retrieve(self, query: str):
+        if self.hybrid_retriever is None:
+            raise ValueError("Hybrid retriever not initialized. Call setup() first.")
+
+        return self.hybrid_retriever.invoke(query)
