@@ -26,7 +26,7 @@ os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
 
 model = ChatGroq(
-    model="openai/gpt-oss-20b",
+    model="openai/gpt-oss-120b",
     temperature=0,
     reasoning_format="parsed",
     max_retries=2,
@@ -47,6 +47,7 @@ def get_agent_response(data: AgentRequest) -> str:
     result = graph_builder.run_graph(
         question=data.question,
         user_id=data.userId,
+        roleUser=data.roleUser,
         reclamation_id=data.reclamationId,
         mode_response=data.mode_response,
         number_vectors=vector_store.count_vectors()

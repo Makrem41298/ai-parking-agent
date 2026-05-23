@@ -16,8 +16,10 @@ api_router = APIRouter()
 async def welcome():
     return {"message": "Hello World"}
 
-@api_router.post("/agent",dependencies=[Depends(JWTBearer())])
-async def agent(data: AgentRequest):
+@api_router.post("/agent")
+async def agent(data: AgentRequest,    user: dict = Depends(JWTBearer())):
+    print(data)
+    data.roleUser = user.get("role")
     print(data)
     answer = await run_in_threadpool(get_agent_response, data)
     return {"question": data.question,
@@ -32,12 +34,12 @@ async def save_files(background_tasks: BackgroundTasks,files: List[UploadFile] =
 
 
 
-@api_router.get("/files")
+@api_router.get("/files",dependencies=[Depends(JWTBearer())])
 def get_files():
 
     return agent_service.get_files()
 
-@api_router.post("/files/delete-batch")
+@api_router.post("/files/delete-batch",dependencies=[Depends(JWTBearer())])
 def delete_files_route(
     data: DeleteFilesRequest,
     background_tasks: BackgroundTasks
@@ -46,13 +48,13 @@ def delete_files_route(
         data,
         background_tasks
     )
-@api_router.get("/files/{filename}/download")
+@api_router.get("/files/{filename}/download",dependencies=[Depends(JWTBearer())])
 def download_file(filename: str):
 
     return  agent_service.download_file(filename)
 
 
-@api_router.get("/vectorstore/status")
+@api_router.get("/vectorstore/status",dependencies=[Depends(JWTBearer())])
 def get_vectorstore_status():
     return vectorstore_status
 

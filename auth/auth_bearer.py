@@ -13,30 +13,43 @@ class JWTBearer(HTTPBearer):
         credentials: HTTPAuthorizationCredentials = await super().__call__(request)
 
         if not credentials:
-            raise HTTPException(status_code=403, detail="Invalid authorization code.")
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authorization code."
+            )
 
         if credentials.scheme != "Bearer":
-            raise HTTPException(status_code=403, detail="Invalid authentication scheme.")
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authentication scheme."
+            )
 
-        if not self.verify_jwt(credentials.credentials):
-            raise HTTPException(status_code=403, detail="Invalid token, expired token, or insufficient role.")
+        payload = self.verify_jwt(credentials.credentials)
 
-        return credentials.credentials
+        if not payload:
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid token, expired token, or insufficient role."
+            )
 
-    def verify_jwt(self, jwtoken: str) -> bool:
+        return payload   # ← return payload instead of token
+
+
+    def verify_jwt(self, jwtoken: str):
         try:
             payload = decodeJWT(jwtoken)
 
+            if not payload:
+                return None
+
+            role = payload.get("role")
+
+            print(role)
+
+            if role not in [Role.ADMIN.value, Role.SUPER_ADMIN.value]:
+                return None
+
+            return payload
+
         except Exception:
-            return False
-
-        if not payload:
-            return False
-
-        role = payload.get("role")
-        print(role)
-
-        if role not in [Role.ADMIN, Role.SUPER_ADMIN]:
-            return False
-
-        return True
+            return None

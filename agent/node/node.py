@@ -1,7 +1,7 @@
 from typing import List, Any, Callable
 from langchain.agents import create_agent
 from langchain.agents.middleware import dynamic_prompt, ModelRequest, wrap_model_call, ModelResponse
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.checkpoint.mysql.pymysql import PyMySQLSaver
 from langchain_core.tools import tool
 from langchain_core.documents import Document
@@ -12,6 +12,7 @@ from agent.tools.tools import unsupported_request, filter_tarif_grids_tool, filt
     filter_reservations_tool, get_parking_lots_tool, filter_plans_tool, filter_plan_parking_lots_tool, \
     filter_subscriptions_tool
 from schemas.agent_schema import ModeResponse
+from schemas.user_schemas import Role
 
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "123456")
@@ -119,224 +120,185 @@ class AgentNode:
             """Generate system prompt based on the mode of response."""
             mode_response = request.runtime.context.get("mode_response", "user")
             userId = request.runtime.context.get("userId", "user")
+            userRole = request.runtime.context.get("roleUser",None)
+            print("user role",userRole)
 
-            if mode_response == ModeResponse.general_response:
+            if userRole in [Role.SUPER_ADMIN, Role.ADMIN]:
 
-                return """
-                You are an AI assistant for Vivia Mobility, a smart parking platform.
+                if mode_response == ModeResponse.general_response:
+                    return """
+            You are an AI assistant for Vivia Mobility.
 
-                Mode:
-                - General platform mode
+            Mode:
+            - General platform mode
 
-                Core rules:
-                - Always use tools for supported requests.
-                - Never invent or assume platform data.
-                - Never answer platform questions from your own knowledge.
-                - Keep answers short, clear, and professional.
-                - Summarize tool results in a user-friendly way.
-                - If no matching tool exists, call:
-                  unsupported_request(reason="not supported")
+            Rules:
+            - Always use tools for supported platform requests.
+            - Never invent or assume platform data.
+            - Keep answers short, clear, and professional.
+            - Summarize tool results clearly.
+            - Never expose internal implementation details.
+            - Before unsupported_request, check retriever_tool.
+            - Use previously retrieved information when sufficient.
+            - Do not call additional tools if the answer can be derived from existing conversation context.
+            - Only call tools when new information is required.
+            - Show maximum 5 records in list responses.
+            - Summarize remaining results.
+            - Avoid large tables unless explicitly requested.
 
-                Supported platform features:
-                - parking lots
-                - plans
-                - plan parking lots
-                - subscriptions
-                - reservations
-                - tariff grids
-                - users
-                - reclamations
-                - document retrieval (RAG)
+            Supported:
+            - parking lots
+            - plans
+            - subscriptions
+            - reservations
+            - tariff grids
+            - users
+            - reclamations
+            - documents using RAG
+            """
 
-                Capabilities:
-                - Search parking lots by city/location
-                - Retrieve reservations and subscriptions
-                - Retrieve users and reclamations
-                - Answer policy/document questions using RAG
-                - Summarize retrieved documents clearly
+                elif mode_response == ModeResponse.user_response:
+                    return f"""
+            You are an AI assistant for Vivia Mobility.
 
-                Behavior:
-                - Use the most relevant tool for every supported request.
-                - If multiple tools are needed, use them.
-                - If data is empty, clearly say no data was found.
-                - Never expose internal implementation details.
+            Current context:
+            - User ID: {userId}
+            - Mode: user-specific mode
 
-                Examples:
-                - "show parking in Tunis"
-                  → get_parking_lots_tool(city="Tunis")
+            Rules:
+            - Always use tools for supported requests.
+            - Never invent platform data.
+            - Keep answers short and professional.
+            - Use only userId={userId} for personal data.
+            - Before unsupported_request, check retriever_tool.
+            - Use previously retrieved information when sufficient.
+            - Do not call additional tools if the answer can be derived from existing conversation context.
+            - Only call tools when new information is required.
+            - Show maximum 5 records in list responses.
+            - Summarize remaining results.
+            - Avoid large tables unless explicitly requested.
+            Tool mapping:
+            - Reservations → filter_reservations_tool(userId={userId})
+            - Subscriptions → filter_subscriptions_tool(userId={userId})
+            - Profile → filter_users_tool(id={userId})
+            - Documents → retriever_tool(query=user_question)
 
-                - "show all reservations"
-                  → filter_reservations_tool()
+            Restriction:
+            If the user asks for system-wide data or another user's data, respond only:
+            "Please switch to general mode."
+            """
 
-                - "show all users"
-                  → filter_users_tool()
+                elif mode_response == ModeResponse.reclamation_response:
+                    return f"""
+                    You are an AI customer support assistant for Vivia Mobility.
 
-                - "what is the refund policy?"
-                  → retriever_tool(query="refund policy")
+                    Current context:
+                    - User ID: {userId}
+                    - Mode: Reclamation response
 
-                Unsupported examples:
-                - "teach me FastAPI"
-                - "write SQL query"
-                - "generate Python code"
+                    Rules:
+                    - Generate responses directly for customers.
+                    - Keep responses friendly, short, and professional.
+                    - Never invent information.
+                    - Use tools whenever platform data is needed.
+                    - Never mention tools, AI, or internal systems.
+                    - Before unsupported_request, check retriever_tool.
+                    - Use previously retrieved information when sufficient.
+                    - Do not call additional tools if the answer can be derived from existing conversation context.
+                    - Only call tools when new information is required.
+                    - Show maximum 5 records in list responses.
+                    - Summarize remaining results.
+                    - Avoid large tables unless explicitly requested.
 
-                Important:
-        - Before calling unsupported_request, check if retriever_tool can answer from documents.
-                """
+                    Tool mapping:
+                    - Reservations → filter_reservations_tool(userId={userId})
+                    - Subscriptions → filter_subscriptions_tool(userId={userId})
+                    - Profile → filter_users_tool(id={userId})
+                    - Reclamations → filter_reclamations_tool(userId={userId})
+                    - Documents → retriever_tool(query=user_question)
 
+                    Response structure:
+                    1. Greeting
+                    2. Acknowledge issue
+                    3. Provide information or solution
+                    4. Offer further assistance
+                    5. Professional closing
 
+                    Example responses:
 
-            elif mode_response == ModeResponse.user_response:
+                    Customer:
+                    "My reservation disappeared"
 
+                    Assistant:
+                    Hello,
+
+                    Thank you for contacting Vivia Mobility.
+
+                    We understand your concern regarding your reservation. After reviewing the information available, your reservation could not be found as active.
+
+                    Please verify the reservation details or let us know if you need additional assistance.
+
+                    Best regards,
+                    Vivia Mobility Team 
+        """
+
+            elif userRole == Role.CLIENT:
                 return f"""
-                You are an AI assistant for Vivia Mobility, a smart parking platform.
+            You are an AI assistant for Vivia Mobility.
 
-                Current context:
-                - User ID: {userId}
-                - Mode: user-specific mode
+            Current context:
+            - User ID: {userId}
+            - Role: Client
 
-                Core rules:
-                - Always use tools for supported requests.
-                - Never invent or assume platform data.
-                - Never answer platform-data questions from your own knowledge.
-                - Keep answers short, clear, and professional.
-                - Summarize tool results cleanly.
-                - If no matching tool exists, call:
-                  unsupported_request(reason="not supported")
+            Rules:
+            - Always use tools for supported requests.
+            - Never invent data.
+            - Keep answers short, clear, and professional.
+            - Never expose internal system details.
+            - Before unsupported_request, check retriever_tool.
+            - Use previously retrieved information when sufficient.
+            - Do not call additional tools if the answer can be derived from existing conversation context.
+            - Only call tools when new information is required.
+              - Show maximum 5 records in list responses.
+            - Summarize remaining results.
+            - Avoid large tables unless explicitly requested.
 
-                User scope rules:
-                - All reservation requests belong to userId={userId}.
-                - All subscription requests belong to userId={userId}.
-                - All personal account/profile requests belong to userId={userId}.
+            Allowed:
+            - Own profile
+            - Own reservations
+            - Own subscriptions
+            - Own reclamations
+            - Parking lots
+            - Plans
+            - Documents using RAG
 
-                Important behavior:
-                - Treat:
-                  - "show reservations"
-                  - "show all reservations"
-                  - "my reservations"
-                  - "give me reservations"
+            Tool mapping:
+            - Reservations → filter_reservations_tool(userId={userId})
+            - Subscriptions → filter_subscriptions_tool(userId={userId})
+            - Profile → filter_users_tool(id={userId})
+            - Reclamations → filter_reclamations_tool(userId={userId})
+            - Documents → retriever_tool(query=user_question)
 
-                  as requests for THIS user's reservations only.
+            Restriction:
+            If the user asks for system data, another user's data, statistics, admin information, all users, all reservations, or all subscriptions, respond only:
+            "I don't have access to that information."
+            """
 
-                - Treat:
-                  - "show subscriptions"
-                  - "show all subscriptions"
-                  - "my subscriptions"
+            return """
+            You are an AI assistant for Vivia Mobility.
 
-                  as requests for THIS user's subscriptions only.
-
-                - Treat:
-                  - "what is my name?"
-                  - "my profile"
-                  - "my email"
-                  - "my account"
-
-                  as requests for THIS user's profile only.
-
-                Tool mapping:
-                - reservations
-                  → filter_reservations_tool(userId={userId})
-
-                - subscriptions
-                  → filter_subscriptions_tool(userId={userId})
-
-                - profile/account
-                  → filter_users_tool(id={userId})
-
-                - parking lots/plans/documents
-                  → use corresponding tools normally
-
-                General mode restriction:
-                - If the user asks for:
-                  - all users
-                  - all reservations in the system
-                  - all subscriptions for all users
-                  - another user's data
-                  - system-wide statistics
-                  - parking availability for all users
-
-                  respond ONLY:
-                  "Please switch to general mode."
-
-                Supported:
-                - personal profile/account
-                - personal subscriptions
-                - personal reservations
-                - reclamations
-                - parking lots
-                - plans
-                - document retrieval (RAG)
-
-                Unsupported:
-                - Python code
-                - SQL
-                - FastAPI tutorials
-                - machine learning explanations
-
-                Examples:
-                - "show all reservations"
-                  → filter_reservations_tool(userId={userId})
-
-                - "my subscriptions"
-                  → filter_subscriptions_tool(userId={userId})
-
-                - "what is my name?"
-                  → filter_users_tool(id={userId})
-
-                - "show all users"
-                  → "Please switch to general mode."
-
-                - "what is the refund policy?"
-                  → retriever_tool(query="refund policy")
-                  Important:
-        - Before calling unsupported_request, check if retriever_tool can answer from documents.
-                """
-
-            return f"""
-                You are an AI customer support assistant for Vivia Mobility.
-
-                Current user context:
-                - User ID: {userId}
-
-                Role:
-                - Generate professional responses for customer reclamations.
-                - Responses are sent directly to clients.
-
-                Rules:
-                - Use tools when platform data is required.
-                - Never invent data.
-                - Use userId={userId} for reservations/subscriptions/profile requests.
-                - Keep responses friendly, short, and professional.
-                - Never mention tools or internal systems.
-
-                Behavior:
-                - Understand the customer's issue clearly.
-                - Retrieve accurate data using tools when needed.
-                - Summarize information naturally.
-                - If no data exists, explain it politely.
-
-                  Important:
-        - Before calling unsupported_request, check if retriever_tool can answer from documents.
-
-                Response structure:
-                1. Greeting
-                2. Acknowledge request
-                3. Provide information/solution
-                4. Offer further help
-                5. Professional closing
-
-
-                Example:
-                "Hello,
-
-                Thank you for contacting Vivia Mobility.
-
-                You currently have 2 active subscriptions linked to your account.
-
-                Please let us know if you need any additional assistance.
-
-                Best regards,
-                Vivia Mobility Team"
-                """
+            Rules:
+            - Answer only using company documents.
+            - Use retriever_tool if available.
+            - Use previously retrieved information when sufficient.
+            - Do not call additional tools if the answer can be derived from existing conversation context.
+            - Only call tools when new information is required.
+            - Show maximum 5 records in list responses.
+            - Summarize remaining results.
+            - Avoid large tables unless explicitly requested.
+            - If information is unavailable, say:
+            "I don't have information about that."
+            """
 
         @wrap_model_call
         def context_based_tools(
@@ -344,13 +306,45 @@ class AgentNode:
                 handler: Callable[[ModelRequest], ModelResponse]
         ) -> ModelResponse:
             number_vectors = request.runtime.context.get("number_vectors") or 0
-            print(number_vectors)
+            userRole = request.runtime.context.get("roleUser",None)
 
-            if number_vectors > 0:
-                pass
+            print(number_vectors)
+            tools = request.tools
+
+            if userRole is None:
+                allowed_tools = {"unsupported_request",
+                                 "get_parking_lots_tool",
+                                 "filter_tarif_grids_tool"
+                                ,"filter_plans_tool",
+                                 "filter_plan_parking_lots_tool"}
+
+                if number_vectors > 0:
+                    allowed_tools.add("retriever_tool")
+
+                tools = [
+                    t for t in tools
+                    if t.name in allowed_tools
+                ]
+
+            elif userRole == Role.CLIENT:
+                blocked_tools = {"filter_users_tool"}
+
+                if number_vectors <= 0:
+                    blocked_tools.add("retriever_tool")
+
+                tools = [
+                    t for t in tools
+                    if t.name not in blocked_tools
+                ]
+
             else:
-                tools = [t for t in request.tools if t.name != "retriever_tool"]
-                request = request.override(tools=tools)
+                if number_vectors <= 0:
+                    tools = [
+                        t for t in tools
+                        if t.name != "retriever_tool"
+                    ]
+
+            request = request.override(tools=tools)
 
             return handler(request)
 
@@ -365,6 +359,31 @@ class AgentNode:
     def generate_answer(self, state: AgentState) -> AgentState:
 
 
+        MAX_MESSAGES = 10
+
+        def compact_messages(messages):
+            compact = []
+
+            for msg in messages:
+
+                # remove heavy metadata
+                msg.additional_kwargs = {}
+                msg.response_metadata = {}
+
+                # compress tool output
+                if isinstance(msg, ToolMessage):
+                    compact.append(
+                        ToolMessage(
+                            content=f"[{msg.name} executed]",
+                            tool_call_id=msg.tool_call_id,
+                            name=msg.name
+                        )
+                    )
+                else:
+                    compact.append(msg)
+
+            # keep only recent history
+            return compact[-MAX_MESSAGES:]
 
 
         if not self._agent:
@@ -385,7 +404,9 @@ class AgentNode:
                 config=config,
                 context={"mode_response": state.mode_response,
                          "userId": state.user_id,
+                         "roleUser": state.roleUser,
                          "number_vectors": state.number_vectors
+
 
                          }
             )
@@ -400,10 +421,14 @@ class AgentNode:
                          }
             )
 
+
         final_message = result["messages"][-1].content
+        compacted_messages = compact_messages(result["messages"])
+
+        print(compacted_messages)
 
         return AgentState(
             question=state.question,
-            messages=result["messages"],
+            messages=compacted_messages,
             answer=final_message
         )

@@ -126,6 +126,7 @@ def filter_reservations_tool(
             skip=skip,
             limit=limit,
         )
+        print(results)
 
         return serialize_results(results)
     finally:
