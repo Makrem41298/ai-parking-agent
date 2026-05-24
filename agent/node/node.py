@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Any, Callable
 from langchain.agents import create_agent
 from langchain.agents.middleware import dynamic_prompt, ModelRequest, wrap_model_call, ModelResponse
@@ -145,16 +146,6 @@ class AgentNode:
             - Show maximum 5 records in list responses.
             - Summarize remaining results.
             - Avoid large tables unless explicitly requested.
-
-            Supported:
-            - parking lots
-            - plans
-            - subscriptions
-            - reservations
-            - tariff grids
-            - users
-            - reclamations
-            - documents using RAG
             """
 
                 elif mode_response == ModeResponse.user_response:
@@ -177,11 +168,7 @@ class AgentNode:
             - Show maximum 5 records in list responses.
             - Summarize remaining results.
             - Avoid large tables unless explicitly requested.
-            Tool mapping:
-            - Reservations → filter_reservations_tool(userId={userId})
-            - Subscriptions → filter_subscriptions_tool(userId={userId})
-            - Profile → filter_users_tool(id={userId})
-            - Documents → retriever_tool(query=user_question)
+          
 
             Restriction:
             If the user asks for system-wide data or another user's data, respond only:
@@ -189,6 +176,7 @@ class AgentNode:
             """
 
                 elif mode_response == ModeResponse.reclamation_response:
+                    print("reclamation response")
                     return f"""
                     You are an AI customer support assistant for Vivia Mobility.
 
@@ -259,9 +247,15 @@ class AgentNode:
             - Use previously retrieved information when sufficient.
             - Do not call additional tools if the answer can be derived from existing conversation context.
             - Only call tools when new information is required.
-              - Show maximum 5 records in list responses.
+            - Show maximum 5 records in list responses.
             - Summarize remaining results.
             - Avoid large tables unless explicitly requested.
+
+            Client context rules:
+            - The authenticated User ID is {userId}.
+            - Never ask the client again for their email or user ID.
+            - For requests such as "my reservations", "my subscriptions", "my profile", or "my reclamations", automatically use User ID {userId}.
+            - Call the corresponding tool directly using the authenticated user's information.
 
             Allowed:
             - Own profile
@@ -272,18 +266,10 @@ class AgentNode:
             - Plans
             - Documents using RAG
 
-            Tool mapping:
-            - Reservations → filter_reservations_tool(userId={userId})
-            - Subscriptions → filter_subscriptions_tool(userId={userId})
-            - Profile → filter_users_tool(id={userId})
-            - Reclamations → filter_reclamations_tool(userId={userId})
-            - Documents → retriever_tool(query=user_question)
-
             Restriction:
             If the user asks for system data, another user's data, statistics, admin information, all users, all reservations, or all subscriptions, respond only:
             "I don't have access to that information."
             """
-
             return """
             You are an AI assistant for Vivia Mobility.
 
@@ -307,6 +293,9 @@ class AgentNode:
         ) -> ModelResponse:
             number_vectors = request.runtime.context.get("number_vectors") or 0
             userRole = request.runtime.context.get("roleUser",None)
+
+
+            print("user role ok ok p k",userRole)
 
             print(number_vectors)
             tools = request.tools
@@ -385,16 +374,28 @@ class AgentNode:
             # keep only recent history
             return compact[-MAX_MESSAGES:]
 
-
         if not self._agent:
             self._build_agent()
+
         config = {
             "configurable": {
-                "thread_id": (
-                    f"reclamation_{state.reclamation_id}"
-                )
+                "thread_id": "default"
             }
         }
+
+        if state.roleUser == Role.SUPER_ADMIN or state.roleUser == Role.ADMIN:
+            config["configurable"]["thread_id"] = f"reclamation_{state.reclamation_id}"
+        else:
+            config["configurable"]["thread_id"] =f"client_{state.session_id}"
+
+
+
+
+
+
+
+
+
 
 
         if state.mode_response != ModeResponse.reclamation_response:
@@ -416,16 +417,20 @@ class AgentNode:
             },
                 context={"mode_response": state.mode_response,
                          "userId": state.user_id,
-                         "number_vectors": state.number_vectors
+                         "number_vectors": state.number_vectors,
+                         "roleUser": state.roleUser,
 
                          }
             )
 
 
+
+
+
         final_message = result["messages"][-1].content
         compacted_messages = compact_messages(result["messages"])
+        print("final message",result["messages"])
 
-        print(compacted_messages)
 
         return AgentState(
             question=state.question,

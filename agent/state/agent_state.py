@@ -13,5 +13,6 @@ class AgentState(BaseModel):
     user_id: int | None = None
     roleUser: Role | None = None
     reclamation_id: int | None = None
+    session_id: str | None = None
     number_vectors: int | None = None
     answer: str | None = None

@@ -10,7 +10,8 @@ class ModeResponse(str, Enum):
     reclamation_response="reclamation_response"
 class AgentRequest(BaseModel):
     question: str
-    userId: int
+    userId: Optional[int]=None
     roleUser: Optional[Role] = None
-    reclamationId:int
+    reclamationId:Optional[int]=None
+    sessionId:Optional[str]=None
     mode_response:ModeResponse

@@ -2,9 +2,11 @@ from datetime import datetime
 import os
 from typing import List
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks
+from sqlalchemy.sql import roles
 from starlette.concurrency import run_in_threadpool
 
 from schemas.DeleteFilesRequest import DeleteFilesRequest
+from schemas.user_schemas import Role
 from services import agent_service
 from services.agent_service import get_agent_response, upload_file, vectorstore_status
 from auth.auth_bearer import JWTBearer
@@ -20,11 +22,26 @@ async def welcome():
 async def agent(data: AgentRequest,    user: dict = Depends(JWTBearer())):
     print(data)
     data.roleUser = user.get("role")
+    if data.roleUser == Role.CLIENT:
+        data.userId=user.get("id")
+
     print(data)
     answer = await run_in_threadpool(get_agent_response, data)
     return {"question": data.question,
             "answer": answer
             }
+
+@api_router.post("/agent-anonymous")
+async def agent(data: AgentRequest):
+    print(data)
+    data.roleUser = None
+    print(data)
+    answer = await run_in_threadpool(get_agent_response, data)
+    return {"question": data.question,
+            "answer": answer
+            }
+
+
 
 
 

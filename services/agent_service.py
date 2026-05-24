@@ -49,6 +49,7 @@ def get_agent_response(data: AgentRequest) -> str:
         user_id=data.userId,
         roleUser=data.roleUser,
         reclamation_id=data.reclamationId,
+        session_id=data.sessionId,
         mode_response=data.mode_response,
         number_vectors=vector_store.count_vectors()
 

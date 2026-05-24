@@ -46,7 +46,7 @@ class JWTBearer(HTTPBearer):
 
             print(role)
 
-            if role not in [Role.ADMIN.value, Role.SUPER_ADMIN.value]:
+            if role not in [Role.ADMIN.value, Role.SUPER_ADMIN.value,Role.CLIENT.value]:
                 return None
 
             return payload
