@@ -9,11 +9,13 @@ from schemas.user_schemas import UserResponse
 
 
 class ReservationStatus(str, Enum):
-    REQUESTED = "REQUESTED"
+    PENDING = "PENDING"
     CONFIRMED = "CONFIRMED"
+    CHECKED_IN = "CHECKED_IN"
+    COMPLETED = "COMPLETED"
     CANCELED = "CANCELED"
     EXPIRED = "EXPIRED"
-    USED = "USED"
+    NO_SHOW = "NO_SHOW"
 
 
 

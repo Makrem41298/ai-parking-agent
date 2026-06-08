@@ -14,7 +14,7 @@ class Reservation(Base):
     startTimeDate = Column(Date, nullable=False)
     endTimeDate = Column(Date, nullable=False)
     totalPrice = Column(DECIMAL(10, 2), nullable=False)
-    status = Column(Enum(ReservationStatus), default=ReservationStatus.REQUESTED, nullable=False)
+    status = Column(Enum(ReservationStatus), default=ReservationStatus.PENDING, nullable=False)
     entryTime = Column(Date, nullable=True)
     leaveTime = Column(Date, nullable=True)
 

@@ -4,9 +4,11 @@ from schemas.user_schemas import UserResponse
 
 
 class ReclamationStatus(str, Enum):
+    OPEN = "OPEN"
     IN_PROGRESS = "IN_PROGRESS"
     RESOLVED = "RESOLVED"
     REJECTED = "REJECTED"
+    CLOSED = "CLOSED"
 
 
 class ReclamationResponse(BaseModel):
@@ -18,7 +20,7 @@ class ReclamationResponse(BaseModel):
     subject: str | None = None
     content: str
     solution: str | None = None
-    status: ReclamationStatus = ReclamationStatus.IN_PROGRESS
+    status: ReclamationStatus = ReclamationStatus.OPEN
 
     model_config = ConfigDict(from_attributes=True)
 

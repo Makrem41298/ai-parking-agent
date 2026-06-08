@@ -32,10 +32,12 @@ CHECKPOINTER_DB_URI = (
 class AgentNode:
     """Contains node functions for RAG workflow"""
 
+
     def __init__(self,llm,vector_store):
         self.llm=llm
         self._agent=None
         self.vector_store = vector_store
+        self._last_retrieved_docs: List[Document] = []
         self._checkpointer_cm = PyMySQLSaver.from_conn_string(CHECKPOINTER_DB_URI)
         self.checkpointer = self._checkpointer_cm.__enter__()
         self.checkpointer.setup()
@@ -76,6 +78,9 @@ class AgentNode:
                        Returns "No documents found." if no relevant results exist.
                """
             docs: List[Document] = self.vector_store.retrieve(query)
+
+            # Store docs for evaluation (groundedness, retrieval_relevance)
+            self._last_retrieved_docs = docs
 
             if not docs:
                 return "No documents found."
@@ -389,15 +394,6 @@ class AgentNode:
             config["configurable"]["thread_id"] =f"client_{state.session_id}"
 
 
-
-
-
-
-
-
-
-
-
         if state.mode_response != ModeResponse.reclamation_response:
             result = self._agent.invoke({
                 "messages": [HumanMessage(content=state.question)]
@@ -423,17 +419,15 @@ class AgentNode:
                          }
             )
 
-
-
-
+        print("final message", result)
 
         final_message = result["messages"][-1].content
         compacted_messages = compact_messages(result["messages"])
-        print("final message",result["messages"])
 
 
         return AgentState(
             question=state.question,
             messages=compacted_messages,
+            documents=self._last_retrieved_docs,
             answer=final_message
         )

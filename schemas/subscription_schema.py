@@ -8,10 +8,11 @@ from schemas.user_schemas import UserResponse
 
 
 class SubscriptionStatus(str, Enum):
+    PENDING = "PENDING"
     ACTIVE = "ACTIVE"
     SUSPENDED = "SUSPENDED"
-    EXPIRED = "EXPIRED"
     CANCELED = "CANCELED"
+    EXPIRED = "EXPIRED"
 
 
 class SubscriptionResponse(BaseModel):

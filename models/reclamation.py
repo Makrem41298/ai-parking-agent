@@ -24,7 +24,7 @@ class Reclamation(Base):
     subject = Column(String, nullable=True)
     content = Column(String, nullable=False)
     solution = Column(String, nullable=True)
-    status = Column(Enum(ReclamationStatus), nullable=False, default=ReclamationStatus.IN_PROGRESS)
+    status = Column(Enum(ReclamationStatus), nullable=False, default=ReclamationStatus.OPEN)
     client = relationship("User", foreign_keys=[clientId], back_populates="client_reclamations")
     admin = relationship("User", foreign_keys=[adminId], back_populates="admin_reclamations")
 

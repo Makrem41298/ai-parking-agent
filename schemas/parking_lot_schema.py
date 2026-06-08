@@ -8,6 +8,7 @@ class ParkingStatus(str, Enum):
     OPEN = "OPEN"
     CLOSED = "CLOSED"
     MAINTENANCE = "MAINTENANCE"
+    FULL = "FULL"
 
 
 class ParkingLotResponse(BaseModel):
