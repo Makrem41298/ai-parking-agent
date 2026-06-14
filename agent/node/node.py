@@ -1,4 +1,5 @@
-from datetime import datetime
+# Max tool calls before forcing a final answer (prevents infinite ReAct loops)
+MAX_TOOL_TURNS = 20
 from typing import List, Any, Callable
 from langchain.agents import create_agent
 from langchain.agents.middleware import dynamic_prompt, ModelRequest, wrap_model_call, ModelResponse
@@ -11,7 +12,7 @@ from agent.state.agent_state import AgentState
 import os
 from agent.tools.tools import unsupported_request, filter_tarif_grids_tool, filter_users_tool, filter_reclamations_tool, \
     filter_reservations_tool, get_parking_lots_tool, filter_plans_tool, filter_plan_parking_lots_tool, \
-    filter_subscriptions_tool
+    filter_subscriptions_tool, filter_payment_transactions_tool
 from schemas.agent_schema import ModeResponse
 from schemas.user_schemas import Role
 
@@ -113,6 +114,7 @@ class AgentNode:
                         filter_plans_tool,
                         filter_plan_parking_lots_tool,
                         filter_subscriptions_tool,
+                        filter_payment_transactions_tool,
                         retriever_tool
                     ]
 
@@ -126,170 +128,60 @@ class AgentNode:
             """Generate system prompt based on the mode of response."""
             mode_response = request.runtime.context.get("mode_response", "user")
             userId = request.runtime.context.get("userId", "user")
-            userRole = request.runtime.context.get("roleUser",None)
-            print("user role",userRole)
+            userRole = request.runtime.context.get("roleUser", None)
+
+            # Shared rules block (included in every prompt)
+            shared_rules = """Rules:
+- Strictly only answer questions related to Vivia Mobility (reservations, subscriptions, reclamations, parking lots, plans, and company documents).
+- Refuse all general-purpose tasks such as writing code (Python, JS, etc.), general knowledge, translations, or unrelated chatting. For these, use unsupported_request or say it is not supported.
+- Use tools for supported requests. Never invent data.
+- Keep answers short, clear, and professional.
+- Reuse existing context before calling tools again.
+- NEVER call tools in a loop for individual IDs (e.g. calling filter_reservations for each user). Instead, fetch in bulk with a larger limit and match/filter in memory.
+- Check retriever_tool before using unsupported_request.
+- Max 5 records in lists; summarize the rest.
+- Never expose internal system details."""
 
             if userRole in [Role.SUPER_ADMIN, Role.ADMIN]:
 
                 if mode_response == ModeResponse.general_response:
-                    return """
-            You are an AI assistant for Vivia Mobility.
+                    return f"""You are an AI assistant for Vivia Mobility.
+Mode: General platform.
 
-            Mode:
-            - General platform mode
-
-            Rules:
-            - Always use tools for supported platform requests.
-            - Never invent or assume platform data.
-            - Keep answers short, clear, and professional.
-            - Summarize tool results clearly.
-            - Never expose internal implementation details.
-            - Before unsupported_request, check retriever_tool.
-            - Use previously retrieved information when sufficient.
-            - Do not call additional tools if the answer can be derived from existing conversation context.
-            - Only call tools when new information is required.
-            - Show maximum 5 records in list responses.
-            - Summarize remaining results.
-            - Avoid large tables unless explicitly requested.
-            """
+{shared_rules}"""
 
                 elif mode_response == ModeResponse.user_response:
-                    return f"""
-            You are an AI assistant for Vivia Mobility.
+                    return f"""You are an AI assistant for Vivia Mobility.
+User ID: {userId} | Mode: User-specific.
 
-            Current context:
-            - User ID: {userId}
-            - Mode: user-specific mode
-
-            Rules:
-            - Always use tools for supported requests.
-            - Never invent platform data.
-            - Keep answers short and professional.
-            - Use only userId={userId} for personal data.
-            - Before unsupported_request, check retriever_tool.
-            - Use previously retrieved information when sufficient.
-            - Do not call additional tools if the answer can be derived from existing conversation context.
-            - Only call tools when new information is required.
-            - Show maximum 5 records in list responses.
-            - Summarize remaining results.
-            - Avoid large tables unless explicitly requested.
-          
-
-            Restriction:
-            If the user asks for system-wide data or another user's data, respond only:
-            "Please switch to general mode."
-            """
+{shared_rules}
+- Use only userId={userId} for personal data.
+- If the user asks for system-wide or another user's data, respond: "Please switch to general mode."""
 
                 elif mode_response == ModeResponse.reclamation_response:
-                    print("reclamation response")
-                    return f"""
-                    You are an AI customer support assistant for Vivia Mobility.
+                    return f"""You are Vivia Mobility's customer support AI.
+User ID: {userId} | Mode: Reclamation response.
 
-                    Current context:
-                    - User ID: {userId}
-                    - Mode: Reclamation response
-
-                    Rules:
-                    - Generate responses directly for customers.
-                    - Keep responses friendly, short, and professional.
-                    - Never invent information.
-                    - Use tools whenever platform data is needed.
-                    - Never mention tools, AI, or internal systems.
-                    - Before unsupported_request, check retriever_tool.
-                    - Use previously retrieved information when sufficient.
-                    - Do not call additional tools if the answer can be derived from existing conversation context.
-                    - Only call tools when new information is required.
-                    - Show maximum 5 records in list responses.
-                    - Summarize remaining results.
-                    - Avoid large tables unless explicitly requested.
-
-                    Tool mapping:
-                    - Reservations → filter_reservations_tool(userId={userId})
-                    - Subscriptions → filter_subscriptions_tool(userId={userId})
-                    - Profile → filter_users_tool(id={userId})
-                    - Reclamations → filter_reclamations_tool(userId={userId})
-                    - Documents → retriever_tool(query=user_question)
-
-                    Response structure:
-                    1. Greeting
-                    2. Acknowledge issue
-                    3. Provide information or solution
-                    4. Offer further assistance
-                    5. Professional closing
-
-                    Example responses:
-
-                    Customer:
-                    "My reservation disappeared"
-
-                    Assistant:
-                    Hello,
-
-                    Thank you for contacting Vivia Mobility.
-
-                    We understand your concern regarding your reservation. After reviewing the information available, your reservation could not be found as active.
-
-                    Please verify the reservation details or let us know if you need additional assistance.
-
-                    Best regards,
-                    Vivia Mobility Team 
-        """
+{shared_rules}
+- Never mention tools, AI, or internal systems.
+- Auto-map: reservations->filter_reservations_tool(userId={userId}), subscriptions->filter_subscriptions_tool(userId={userId}), reclamations->filter_reclamations_tool(userId={userId}), documents->retriever_tool.
+- Format: Greeting -> Acknowledge -> Solution -> Offer help -> Closing."""
 
             elif userRole == Role.CLIENT:
-                return f"""
-            You are an AI assistant for Vivia Mobility.
+                return f"""You are an AI assistant for Vivia Mobility.
+User ID: {userId} | Role: Client.
 
-            Current context:
-            - User ID: {userId}
-            - Role: Client
+{shared_rules}
+- Authenticated user is {userId}. Never ask for their email or ID.
+- For "my reservations/subscriptions/profile/reclamations", use userId={userId} automatically.
+- Allowed: own profile, own reservations, own subscriptions, own reclamations, parking lots, plans, documents.
+- If the user asks for system data or another user's data, respond: "I don't have access to that information."""
 
-            Rules:
-            - Always use tools for supported requests.
-            - Never invent data.
-            - Keep answers short, clear, and professional.
-            - Never expose internal system details.
-            - Before unsupported_request, check retriever_tool.
-            - Use previously retrieved information when sufficient.
-            - Do not call additional tools if the answer can be derived from existing conversation context.
-            - Only call tools when new information is required.
-            - Show maximum 5 records in list responses.
-            - Summarize remaining results.
-            - Avoid large tables unless explicitly requested.
+            return f"""You are an AI assistant for Vivia Mobility.
 
-            Client context rules:
-            - The authenticated User ID is {userId}.
-            - Never ask the client again for their email or user ID.
-            - For requests such as "my reservations", "my subscriptions", "my profile", or "my reclamations", automatically use User ID {userId}.
-            - Call the corresponding tool directly using the authenticated user's information.
-
-            Allowed:
-            - Own profile
-            - Own reservations
-            - Own subscriptions
-            - Own reclamations
-            - Parking lots
-            - Plans
-            - Documents using RAG
-
-            Restriction:
-            If the user asks for system data, another user's data, statistics, admin information, all users, all reservations, or all subscriptions, respond only:
-            "I don't have access to that information."
-            """
-            return """
-            You are an AI assistant for Vivia Mobility.
-
-            Rules:
-            - Answer only using company documents.
-            - Use retriever_tool if available.
-            - Use previously retrieved information when sufficient.
-            - Do not call additional tools if the answer can be derived from existing conversation context.
-            - Only call tools when new information is required.
-            - Show maximum 5 records in list responses.
-            - Summarize remaining results.
-            - Avoid large tables unless explicitly requested.
-            - If information is unavailable, say:
-            "I don't have information about that."
-            """
+{shared_rules}
+- Answer only using company documents and retriever_tool.
+- If information is unavailable, say: "I don't have information about that."""
 
         @wrap_model_call
         def context_based_tools(
@@ -297,50 +189,92 @@ class AgentNode:
                 handler: Callable[[ModelRequest], ModelResponse]
         ) -> ModelResponse:
             number_vectors = request.runtime.context.get("number_vectors") or 0
-            userRole = request.runtime.context.get("roleUser",None)
+            userRole = request.runtime.context.get("roleUser", None)
+            userId = request.runtime.context.get("userId", None)
+            mode_response = request.runtime.context.get("mode_response", None)
 
+            # Count tool calls in the current turn (since the last HumanMessage)
+            last_human_idx = -1
+            for i in range(len(request.messages) - 1, -1, -1):
+                if isinstance(request.messages[i], HumanMessage):
+                    last_human_idx = i
+                    break
 
-            print("user role ok ok p k",userRole)
+            if last_human_idx != -1:
+                tool_call_count = sum(
+                    1 for msg in request.messages[last_human_idx:]
+                    if isinstance(msg, ToolMessage)
+                )
+            else:
+                tool_call_count = sum(
+                    1 for msg in request.messages
+                    if isinstance(msg, ToolMessage)
+                )
 
-            print(number_vectors)
             tools = request.tools
 
-            if userRole is None:
-                allowed_tools = {"unsupported_request",
-                                 "get_parking_lots_tool",
-                                 "filter_tarif_grids_tool"
-                                ,"filter_plans_tool",
-                                 "filter_plan_parking_lots_tool"}
-
-                if number_vectors > 0:
-                    allowed_tools.add("retriever_tool")
-
-                tools = [
-                    t for t in tools
-                    if t.name in allowed_tools
-                ]
-
-            elif userRole == Role.CLIENT:
-                blocked_tools = {"filter_users_tool"}
-
-                if number_vectors <= 0:
-                    blocked_tools.add("retriever_tool")
-
-                tools = [
-                    t for t in tools
-                    if t.name not in blocked_tools
-                ]
-
+            if tool_call_count >= MAX_TOOL_TURNS:
+                # Disable all tools to force a final text response from the model
+                tools = []
             else:
-                if number_vectors <= 0:
+                # Role-based tool filtering (always applied)
+                if userRole is None:
+                    allowed_tools = {
+                        "unsupported_request",
+                        "get_parking_lots_tool",
+                        "filter_tarif_grids_tool",
+                        "filter_plans_tool",
+                        "filter_plan_parking_lots_tool",
+                    }
+
+                    if number_vectors > 0:
+                        allowed_tools.add("retriever_tool")
+
                     tools = [
                         t for t in tools
-                        if t.name != "retriever_tool"
+                        if t.name in allowed_tools
                     ]
+
+                elif userRole == Role.CLIENT:
+                    blocked_tools = {"filter_users_tool"}
+
+                    if number_vectors <= 0:
+                        blocked_tools.add("retriever_tool")
+
+                    tools = [
+                        t for t in tools
+                        if t.name not in blocked_tools
+                    ]
+
+                else:
+                    if number_vectors <= 0:
+                        tools = [
+                            t for t in tools
+                            if t.name != "retriever_tool"
+                        ]
 
             request = request.override(tools=tools)
 
-            return handler(request)
+            response = handler(request)
+
+            # Force userId on user-scoped tools when context has a userId (only if tools were allowed/called)
+            if userId is not None and (
+                    userRole == Role.CLIENT
+                    or mode_response == ModeResponse.user_response
+            ):
+                user_scoped_tools = {
+                    "filter_reservations_tool",
+                    "filter_subscriptions_tool",
+                    "filter_reclamations_tool",
+                    "filter_payment_transactions_tool",
+                }
+                for msg in response.result:
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            if tc["name"] in user_scoped_tools:
+                                tc["args"]["userId"] = userId
+
+            return response
 
         self._agent= create_agent(
                 self.llm,

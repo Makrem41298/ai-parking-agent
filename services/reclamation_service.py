@@ -4,7 +4,6 @@ from pydantic import TypeAdapter
 from sqlalchemy.orm import Session, joinedload
 
 from models.reclamation import Reclamation
-from database import db
 from models.user import User
 from schemas.reclamation_schema import ReclamationResponse
 
