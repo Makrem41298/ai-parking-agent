@@ -7,7 +7,9 @@ from pydantic import BaseModel, ConfigDict
 
 class PlanStatus(str, Enum):
     ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
     SUSPENDED = "SUSPENDED"
+    ARCHIVED = "ARCHIVED"
 
 
 class ActiveDay(BaseModel):

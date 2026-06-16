@@ -1,7 +1,7 @@
 from enum import Enum
-
+from typing import Optional
 from pydantic import BaseModel
-
+from schemas.user_schemas import Role
 
 
 class ModeResponse(str, Enum):
@@ -10,6 +10,8 @@ class ModeResponse(str, Enum):
     reclamation_response="reclamation_response"
 class AgentRequest(BaseModel):
     question: str
-    userId: int
-    reclamationId:int
+    userId: Optional[int]=None
+    roleUser: Optional[Role] = None
+    reclamationId:Optional[int]=None
+    sessionId:Optional[str]=None
     mode_response:ModeResponse

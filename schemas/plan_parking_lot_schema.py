@@ -9,7 +9,9 @@ from schemas.plan_schema import PlanResponse
 
 class PlanStatus(str, Enum):
     ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
     SUSPENDED = "SUSPENDED"
+    ARCHIVED = "ARCHIVED"
 
 
 

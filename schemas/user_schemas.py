@@ -3,8 +3,9 @@ from pydantic import BaseModel, EmailStr, ConfigDict
 
 class AccountStatus(str, enum.Enum):
     ACTIVE = "ACTIVE"
-    BLOCKED = "BLOCKED"
     PENDING = "PENDING"
+    SUSPENDED = "SUSPENDED"
+    BLOCKED = "BLOCKED"
 
 class Role(str, enum.Enum):
     CLIENT = "CLIENT"
