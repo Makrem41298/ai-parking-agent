@@ -42,7 +42,7 @@ graph_builder = GraphBuilder(
 )
 
 
-def get_agent_response(data: AgentRequest) -> str:
+def get_agent_response(data: AgentRequest) -> dict:
     print(f"number of vectors: {vector_store.count_vectors()}")
     result = graph_builder.run_graph(
         question=data.question,
@@ -56,7 +56,12 @@ def get_agent_response(data: AgentRequest) -> str:
     )
 
 
-    return result.get("answer", "")
+    action = result.get("action")
+    return {
+        "answer": result.get("answer", ""),
+        "action": action,
+        "authRequired": action == "login"
+    }
 
 
 def get_files():

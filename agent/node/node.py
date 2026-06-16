@@ -1,4 +1,6 @@
 # Max tool calls before forcing a final answer (prevents infinite ReAct loops)
+import re
+
 MAX_TOOL_TURNS = 20
 from typing import List, Any, Callable
 from langchain.agents import create_agent
@@ -131,27 +133,37 @@ class AgentNode:
             userRole = request.runtime.context.get("roleUser", None)
 
             # Shared rules block (included in every prompt)
-            shared_rules = """Rules:
-- Strictly only answer questions related to Vivia Mobility (reservations, subscriptions, reclamations, parking lots, plans, and company documents).
-- Refuse all general-purpose tasks such as writing code (Python, JS, etc.), general knowledge, translations, or unrelated chatting. For these, use unsupported_request or say it is not supported.
+            shared_rules = f"""Rules:
+- Strictly only answer questions related to ParkEase (reservations, subscriptions, reclamations, parking lots, plans, and company documents).
+- For basic conversational messages (greetings like hello/hi/bonjour, "can you help me", "what can you do", "thank you", "goodbye", etc.), respond warmly and helpfully. For example: "Hello! Welcome to ParkEase. I can help you with parking reservations, subscriptions, plans, and more. How can I assist you?" Do NOT refuse these messages.
+- Refuse all general-purpose tasks such as writing code (Python, JS, etc.), general knowledge, translations, or topics unrelated to ParkEase. For these, use unsupported_request or say it is not supported.
 - Use tools for supported requests. Never invent data.
 - Keep answers short, clear, and professional.
 - Reuse existing context before calling tools again.
 - NEVER call tools in a loop for individual IDs (e.g. calling filter_reservations for each user). Instead, fetch in bulk with a larger limit and match/filter in memory.
 - Check retriever_tool before using unsupported_request.
 - Max 5 records in lists; summarize the rest.
-- Never expose internal system details."""
+- Whenever you display or list parking lots, you MUST format them as a Markdown table. The table MUST include these columns: "Name", "Location", "Available Spots", and "Actions".
+- The "Actions" column in the table MUST contain a Markdown link pointing to `/parking/{{id}}` (where `{{id}}` is the actual ID of the parking lot) formatted exactly as: `[Check](/parking/{{id}})`
+- If the user asks to create a reservation or subscription and a specific parking lot (e.g. "Parking Vieux-Port") was already discussed or shown in the message history, you MUST target that specific parking lot. Respond with a guide explaining how to proceed for that parking lot, and output the action `[ACTION:navigate_parking_{{id}}_{{name}}]` for it, instead of `[ACTION:navigate_parkings]` for the general list.
+- Never expose internal system details.
+- IMPORTANT: At the very end of EVERY response, on a new line, you MUST append exactly one of these action markers:
+  - [ACTION:login] — if the user's request requires authentication/login (e.g. personal reservations, subscriptions, reclamations, profile, payment data) but the user is NOT authenticated (userRole is not provided, i.e. userRole={userRole}).
+  - [ACTION:navigate_parkings] — if the user wants to create a reservation, start a subscription, or browse/book parking lots, and we want to redirect them to the parkings list page.
+  - [ACTION:navigate_parking_{{id}}_{{name}}] — if the user wants to see details of, check, or book a specific parking lot (replace `{{id}}` with the actual numeric ID of the parking lot, and `{{name}}` with the actual name of the parking lot, e.g. `[ACTION:navigate_parking_3_Parking Vieux-Port]`).
+  - [ACTION:none] — for any other response where no specific action is needed.
+  Never omit this marker."""
 
             if userRole in [Role.SUPER_ADMIN, Role.ADMIN]:
 
                 if mode_response == ModeResponse.general_response:
-                    return f"""You are an AI assistant for Vivia Mobility.
+                    return f"""You are an AI assistant for ParkEase.
 Mode: General platform.
 
 {shared_rules}"""
 
                 elif mode_response == ModeResponse.user_response:
-                    return f"""You are an AI assistant for Vivia Mobility.
+                    return f"""You are an AI assistant for ParkEase for subscription or rservation parking.
 User ID: {userId} | Mode: User-specific.
 
 {shared_rules}
@@ -159,7 +171,7 @@ User ID: {userId} | Mode: User-specific.
 - If the user asks for system-wide or another user's data, respond: "Please switch to general mode."""
 
                 elif mode_response == ModeResponse.reclamation_response:
-                    return f"""You are Vivia Mobility's customer support AI.
+                    return f"""You are ParkEase s customer support AI for subscription or rservation parking'.
 User ID: {userId} | Mode: Reclamation response.
 
 {shared_rules}
@@ -168,7 +180,7 @@ User ID: {userId} | Mode: Reclamation response.
 - Format: Greeting -> Acknowledge -> Solution -> Offer help -> Closing."""
 
             elif userRole == Role.CLIENT:
-                return f"""You are an AI assistant for Vivia Mobility.
+                return f"""You are an AI assistant for ParkEase to subscription or rservation parking.
 User ID: {userId} | Role: Client.
 
 {shared_rules}
@@ -177,10 +189,11 @@ User ID: {userId} | Role: Client.
 - Allowed: own profile, own reservations, own subscriptions, own reclamations, parking lots, plans, documents.
 - If the user asks for system data or another user's data, respond: "I don't have access to that information."""
 
-            return f"""You are an AI assistant for Vivia Mobility.
+            return f"""You are an AI assistant for ParkEase.
 
 {shared_rules}
 - Answer only using company documents and retriever_tool.
+- If the user asks for personal data (reservations, subscriptions, reclamations, payments, profile), respond: "This information requires login. Please sign in to access your personal data."
 - If information is unavailable, say: "I don't have information about that."""
 
         @wrap_model_call
@@ -281,8 +294,8 @@ User ID: {userId} | Role: Client.
                 tools=tools,
                 middleware=[mode_prompt,context_based_tools],
                 checkpointer=self.checkpointer,
-                context_schema=Context
-)
+                context_schema=Context,
+        )
 
     def generate_answer(self, state: AgentState) -> AgentState:
 
@@ -355,13 +368,23 @@ User ID: {userId} | Role: Client.
 
         print("final message", result)
 
-        final_message = result["messages"][-1].content
         compacted_messages = compact_messages(result["messages"])
+        final_message = result["messages"][-1].content
 
+        # Parse [ACTION:...] marker from the response
+        action = None
+        action_match = re.search(r'\[ACTION:([^\]]+)\]', final_message)
+        if action_match:
+            action_val = action_match.group(1).strip()
+            if action_val.lower() != "none":
+                action = action_val
+            # Strip the marker from the visible response
+            final_message = re.sub(r'\s*\[ACTION:[^\]]+\]\s*', '', final_message).strip()
 
         return AgentState(
             question=state.question,
             messages=compacted_messages,
             documents=self._last_retrieved_docs,
-            answer=final_message
+            answer=final_message,
+            action=action
         )

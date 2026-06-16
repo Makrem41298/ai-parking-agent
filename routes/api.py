@@ -26,9 +26,11 @@ async def agent(data: AgentRequest,    user: dict = Depends(JWTBearer())):
         data.userId=user.get("id")
 
     print(data)
-    answer = await run_in_threadpool(get_agent_response, data)
+    result = await run_in_threadpool(get_agent_response, data)
     return {"question": data.question,
-            "answer": answer
+            "answer": result["answer"],
+            "action": result["action"],
+            "authRequired": result["authRequired"]
             }
 
 @api_router.post("/agent-anonymous")
@@ -36,9 +38,11 @@ async def agent(data: AgentRequest):
     print(data)
     data.roleUser = None
     print(data)
-    answer = await run_in_threadpool(get_agent_response, data)
+    result = await run_in_threadpool(get_agent_response, data)
     return {"question": data.question,
-            "answer": answer
+            "answer": result["answer"],
+            "action": result["action"],
+            "authRequired": result["authRequired"]
             }
 
 

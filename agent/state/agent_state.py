@@ -18,3 +18,4 @@ class AgentState(BaseModel):
     session_id: str | None = None
     number_vectors: int | None = None
     answer: str | None = None
+    action: str | None = None
