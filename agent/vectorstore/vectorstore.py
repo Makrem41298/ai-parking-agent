@@ -29,7 +29,7 @@ class VectorStore:
             model_name=model_name,
             model_kwargs={"device": device},
             encode_kwargs={
-                "batch_size": 1,
+                "batch_size": 8,
                 "normalize_embeddings": True,
             },
         )

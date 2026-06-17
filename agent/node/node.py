@@ -2,6 +2,7 @@
 import re
 
 MAX_TOOL_TURNS = 20
+MAX_HISTORY_MESSAGES = 20  # Max messages kept in context to prevent prompt growth
 from typing import List, Any, Callable
 from langchain.agents import create_agent
 from langchain.agents.middleware import dynamic_prompt, ModelRequest, wrap_model_call, ModelResponse
@@ -267,6 +268,15 @@ User ID: {userId} | Role: Client.
                         ]
 
             request = request.override(tools=tools)
+
+            # Trim old history to prevent prompt tokens from growing indefinitely
+            messages = list(request.messages)
+            if len(messages) > MAX_HISTORY_MESSAGES:
+                trimmed = messages[-MAX_HISTORY_MESSAGES:]
+                # Don't start with an orphaned ToolMessage
+                while trimmed and isinstance(trimmed[0], ToolMessage):
+                    trimmed.pop(0)
+                request = request.override(messages=trimmed)
 
             response = handler(request)
 
