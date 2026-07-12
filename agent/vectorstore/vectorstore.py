@@ -145,8 +145,7 @@ class VectorStore:
                 "k": 3,
                 "fetch_k": 20,
                 "lambda_mult": 0.8,
-                # remove filter if your metadata does not have type=text
-                # "filter": {"type": "text"},
+
             },
         )
 

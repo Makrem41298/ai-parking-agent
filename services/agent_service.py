@@ -35,7 +35,6 @@ model = ChatGroq(
 vector_store = VectorStore()
 vector_store.setup()
 
-# Cache vector count to avoid creating a new ChromaDB client on every request
 _cached_vector_count = vector_store.count_vectors()
 
 graph_builder = GraphBuilder(
@@ -45,7 +44,6 @@ graph_builder = GraphBuilder(
 
 
 def get_agent_response(data: AgentRequest) -> dict:
-    print(f"number of vectors: {_cached_vector_count}")
     result = graph_builder.run_graph(
         question=data.question,
         user_id=data.userId,
