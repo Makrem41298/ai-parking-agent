@@ -29,7 +29,7 @@ class VectorStore:
             model_name=model_name,
             model_kwargs={"device": device},
             encode_kwargs={
-                "batch_size": 1,
+                "batch_size": 8,
                 "normalize_embeddings": True,
             },
         )
@@ -145,8 +145,7 @@ class VectorStore:
                 "k": 3,
                 "fetch_k": 20,
                 "lambda_mult": 0.8,
-                # remove filter if your metadata does not have type=text
-                # "filter": {"type": "text"},
+
             },
         )
 

@@ -28,13 +28,14 @@ os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 model = ChatGroq(
     model="openai/gpt-oss-20b",
     temperature=0,
-    reasoning_format="parsed",
     max_retries=2,
 )
 
 
 vector_store = VectorStore()
 vector_store.setup()
+
+_cached_vector_count = vector_store.count_vectors()
 
 graph_builder = GraphBuilder(
     llm=model,
@@ -43,7 +44,6 @@ graph_builder = GraphBuilder(
 
 
 def get_agent_response(data: AgentRequest) -> dict:
-    print(f"number of vectors: {vector_store.count_vectors()}")
     result = graph_builder.run_graph(
         question=data.question,
         user_id=data.userId,
@@ -51,8 +51,7 @@ def get_agent_response(data: AgentRequest) -> dict:
         reclamation_id=data.reclamationId,
         session_id=data.sessionId,
         mode_response=data.mode_response,
-        number_vectors=vector_store.count_vectors()
-
+        number_vectors=_cached_vector_count
     )
 
 
@@ -178,6 +177,7 @@ vectorstore_status = {
 }
 
 def rebuild_vectorstore():
+    global _cached_vector_count
 
     try:
         vector_store.reset_collection()
@@ -197,6 +197,7 @@ def rebuild_vectorstore():
             save_chunks=True
         )
         vector_store.setup()
+        _cached_vector_count = vector_store.count_vectors()
         vectorstore_status["status"] = "completed"
 
         print("Vectorstore rebuilt successfully")

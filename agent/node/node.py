@@ -2,6 +2,7 @@
 import re
 
 MAX_TOOL_TURNS = 20
+MAX_HISTORY_MESSAGES = 20  # Max messages kept in context to prevent prompt growth
 from typing import List, Any, Callable
 from langchain.agents import create_agent
 from langchain.agents.middleware import dynamic_prompt, ModelRequest, wrap_model_call, ModelResponse
@@ -206,7 +207,6 @@ User ID: {userId} | Role: Client.
             userId = request.runtime.context.get("userId", None)
             mode_response = request.runtime.context.get("mode_response", None)
 
-            # Count tool calls in the current turn (since the last HumanMessage)
             last_human_idx = -1
             for i in range(len(request.messages) - 1, -1, -1):
                 if isinstance(request.messages[i], HumanMessage):
@@ -227,10 +227,8 @@ User ID: {userId} | Role: Client.
             tools = request.tools
 
             if tool_call_count >= MAX_TOOL_TURNS:
-                # Disable all tools to force a final text response from the model
                 tools = []
             else:
-                # Role-based tool filtering (always applied)
                 if userRole is None:
                     allowed_tools = {
                         "unsupported_request",
@@ -268,9 +266,15 @@ User ID: {userId} | Role: Client.
 
             request = request.override(tools=tools)
 
+            messages = list(request.messages)
+            if len(messages) > MAX_HISTORY_MESSAGES:
+                trimmed = messages[-MAX_HISTORY_MESSAGES:]
+                while trimmed and isinstance(trimmed[0], ToolMessage):
+                    trimmed.pop(0)
+                request = request.override(messages=trimmed)
+
             response = handler(request)
 
-            # Force userId on user-scoped tools when context has a userId (only if tools were allowed/called)
             if userId is not None and (
                     userRole == Role.CLIENT
                     or mode_response == ModeResponse.user_response
@@ -371,14 +375,12 @@ User ID: {userId} | Role: Client.
         compacted_messages = compact_messages(result["messages"])
         final_message = result["messages"][-1].content
 
-        # Parse [ACTION:...] marker from the response
         action = None
         action_match = re.search(r'\[ACTION:([^\]]+)\]', final_message)
         if action_match:
             action_val = action_match.group(1).strip()
             if action_val.lower() != "none":
                 action = action_val
-            # Strip the marker from the visible response
             final_message = re.sub(r'\s*\[ACTION:[^\]]+\]\s*', '', final_message).strip()
 
         return AgentState(
